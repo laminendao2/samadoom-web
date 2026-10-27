@@ -6,46 +6,25 @@ import { useAuth } from '@/context/AuthContext';
 
 const ROLE_CONFIG: Record<string, {
   label: string; subtitle: string; emoji: string;
-  headerBg: string; buttonBg: string; buttonHover: string;
-  tabActive: string; linkColor: string;
+  headerBg: string; accentColor: string;
 }> = {
-  eleve: {
-    label: 'Élève', subtitle: 'Espace Élève', emoji: '🎓',
-    headerBg: 'bg-blue-500', buttonBg: 'bg-blue-500', buttonHover: 'hover:bg-blue-600',
-    tabActive: 'bg-blue-500', linkColor: 'text-blue-500',
-  },
-  parent: {
-    label: 'Parent', subtitle: 'Espace Parent', emoji: '👨‍👩‍👧',
-    headerBg: 'bg-purple-600', buttonBg: 'bg-purple-600', buttonHover: 'hover:bg-purple-700',
-    tabActive: 'bg-purple-600', linkColor: 'text-purple-600',
-  },
-  professeur: {
-    label: 'Professeur', subtitle: 'Espace Professeur', emoji: '📚',
-    headerBg: 'bg-orange-500', buttonBg: 'bg-orange-500', buttonHover: 'hover:bg-orange-600',
-    tabActive: 'bg-orange-500', linkColor: 'text-orange-500',
-  },
-  admin: {
-    label: 'Admin', subtitle: 'Espace Admin', emoji: '🏫',
-    headerBg: 'bg-green-800', buttonBg: 'bg-green-800', buttonHover: 'hover:bg-green-900',
-    tabActive: 'bg-green-800', linkColor: 'text-green-800',
-  },
-  superadmin: {
-    label: 'Super Admin', subtitle: 'Espace Super Admin', emoji: '⚙️',
-    headerBg: 'bg-red-700', buttonBg: 'bg-red-700', buttonHover: 'hover:bg-red-800',
-    tabActive: 'bg-red-700', linkColor: 'text-red-700',
-  },
+  eleve:      { label: 'Élève',       subtitle: 'Espace Élève',       emoji: '🎓', headerBg: '#3b82f6', accentColor: '#3b82f6' },
+  parent:     { label: 'Parent',      subtitle: 'Espace Parent',      emoji: '👨‍👩‍👧', headerBg: '#9333ea', accentColor: '#9333ea' },
+  professeur: { label: 'Professeur',  subtitle: 'Espace Professeur',  emoji: '📚', headerBg: '#f97316', accentColor: '#f97316' },
+  admin:      { label: 'Admin',       subtitle: 'Espace Admin',       emoji: '🏫', headerBg: '#166534', accentColor: '#166534' },
+  superadmin: { label: 'Super Admin', subtitle: 'Espace Super Admin', emoji: '⚙️', headerBg: '#b91c1c', accentColor: '#b91c1c' },
 };
 
-const DEFAULT_CONFIG = ROLE_CONFIG['eleve'];
+const DEFAULT = ROLE_CONFIG['eleve'];
 
 function LoginForm() {
   const searchParams = useSearchParams();
   const roleKey = searchParams.get('role') || 'eleve';
-  const config = ROLE_CONFIG[roleKey] || DEFAULT_CONFIG;
+  const cfg = ROLE_CONFIG[roleKey] || DEFAULT;
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { signIn, signInWithGoogle } = useAuth();
@@ -60,9 +39,7 @@ function LoginForm() {
       router.replace('/dashboard');
     } catch {
       setError('Email ou mot de passe incorrect');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const handleGoogle = async () => {
@@ -73,100 +50,84 @@ function LoginForm() {
       router.replace('/dashboard');
     } catch {
       setError('Erreur avec Google');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#f8f9fa' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#f8f9fa' }}>
       {/* Header coloré */}
-      <div className={`${config.headerBg} text-white flex flex-col items-center pt-10 pb-16 px-6 relative`}>
-        <Link href="/" className="absolute left-4 top-4 text-white text-2xl font-bold hover:opacity-80">←</Link>
-        <div className="text-5xl mb-3">{config.emoji}</div>
-        <h1 className="text-2xl font-bold">{config.label}</h1>
-        <p className="text-white/70 text-sm mt-1">{config.subtitle}</p>
+      <div style={{ background: cfg.headerBg, color: 'white', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 40, paddingBottom: 64, paddingLeft: 24, paddingRight: 24, position: 'relative' }}>
+        <Link href="/" style={{ position: 'absolute', left: 16, top: 16, color: 'white', fontSize: 22, fontWeight: 700, textDecoration: 'none' }}>←</Link>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>{cfg.emoji}</div>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{cfg.label}</h1>
+        <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, marginTop: 4 }}>{cfg.subtitle}</p>
       </div>
 
       {/* Carte blanche */}
-      <div className="flex-1 -mt-8 bg-white rounded-t-3xl px-6 pt-6 pb-10 max-w-md mx-auto w-full">
-        {/* Tabs Connexion / Inscription */}
-        <div className="flex bg-gray-100 rounded-full p-1 mb-6">
-          <button className={`flex-1 py-2 rounded-full text-sm font-semibold text-white ${config.tabActive} transition-all`}>
+      <div style={{ flex: 1, marginTop: -32, background: 'white', borderRadius: '24px 24px 0 0', padding: '24px 24px 40px', maxWidth: 480, width: '100%', margin: '-32px auto 0', boxSizing: 'border-box' }}>
+        {/* Tabs */}
+        <div style={{ display: 'flex', background: '#f3f4f6', borderRadius: 999, padding: 4, marginBottom: 24 }}>
+          <button style={{ flex: 1, padding: '8px 0', borderRadius: 999, background: cfg.accentColor, color: 'white', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}>
             Connexion
           </button>
-          <Link href={`/register?role=${roleKey}`} className="flex-1 py-2 rounded-full text-sm font-semibold text-gray-500 text-center hover:text-gray-700 transition-all">
+          <Link href={`/register?role=${roleKey}`} style={{ flex: 1, padding: '8px 0', borderRadius: 999, color: '#6b7280', fontWeight: 600, fontSize: 14, textAlign: 'center', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             Inscription
           </Link>
         </div>
 
-        <form onSubmit={handleLogin} className="flex flex-col gap-4">
+        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Email</label>
-            <div className="flex items-center bg-gray-100 rounded-xl px-4 py-3 gap-3">
-              <span className="text-gray-400">✉️</span>
-              <input
-                type="email" value={email} onChange={e => setEmail(e.target.value)}
-                placeholder="exemple@email.com" required
-                className="flex-1 bg-transparent outline-none text-gray-800 text-sm placeholder-gray-400"
-              />
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>Email</label>
+            <div style={{ display: 'flex', alignItems: 'center', background: '#f3f4f6', borderRadius: 12, padding: '12px 16px', gap: 12 }}>
+              <span style={{ color: '#9ca3af' }}>✉️</span>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="exemple@email.com" required
+                style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 14, color: '#1f2937' }} />
             </div>
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Mot de passe</label>
-            <div className="flex items-center bg-gray-100 rounded-xl px-4 py-3 gap-3">
-              <span className="text-gray-400">🔒</span>
-              <input
-                type={showPassword ? 'text' : 'password'} value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••" required
-                className="flex-1 bg-transparent outline-none text-gray-800 text-sm placeholder-gray-400"
-              />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} className="text-gray-400 hover:text-gray-600">
-                {showPassword ? '🙈' : '👁'}
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>Mot de passe</label>
+            <div style={{ display: 'flex', alignItems: 'center', background: '#f3f4f6', borderRadius: 12, padding: '12px 16px', gap: 12 }}>
+              <span style={{ color: '#9ca3af' }}>🔒</span>
+              <input type={showPwd ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required
+                style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 14, color: '#1f2937' }} />
+              <button type="button" onClick={() => setShowPwd(!showPwd)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16 }}>
+                {showPwd ? '🙈' : '👁'}
               </button>
             </div>
           </div>
 
-          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+          {error && <p style={{ color: '#ef4444', fontSize: 13, textAlign: 'center', margin: 0 }}>{error}</p>}
 
-          <button
-            type="submit" disabled={loading}
-            className={`w-full py-4 rounded-xl text-white font-bold text-base ${config.buttonBg} ${config.buttonHover} transition-all disabled:opacity-60 mt-1`}
-          >
+          <button type="submit" disabled={loading}
+            style={{ width: '100%', padding: '14px 0', borderRadius: 12, background: cfg.accentColor, color: 'white', fontWeight: 700, fontSize: 15, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.6 : 1, marginTop: 4 }}>
             {loading ? 'Connexion…' : 'Se connecter'}
           </button>
         </form>
 
-        <p className={`text-center text-sm font-semibold ${config.linkColor} mt-4 cursor-pointer hover:opacity-80`}>
+        <p style={{ textAlign: 'center', fontSize: 13, fontWeight: 600, color: cfg.accentColor, marginTop: 16, cursor: 'pointer' }}>
           Mot de passe oublié ?
         </p>
 
-        <div className="flex items-center gap-3 my-5">
-          <div className="flex-1 h-px bg-gray-200" />
-          <span className="text-xs text-gray-400">ou continuer avec</span>
-          <div className="flex-1 h-px bg-gray-200" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>
+          <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+          <span style={{ fontSize: 12, color: '#9ca3af' }}>ou continuer avec</span>
+          <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
         </div>
 
-        <button
-          onClick={handleGoogle} disabled={loading}
-          className="w-full flex items-center justify-center gap-3 py-3 rounded-xl border-2 border-gray-200 text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-all mb-3"
-        >
-          <span className="text-red-500 font-bold text-lg">G</span>
+        <button onClick={handleGoogle} disabled={loading}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '12px 0', borderRadius: 12, border: '2px solid #e5e7eb', background: 'white', color: '#374151', fontWeight: 600, fontSize: 14, cursor: 'pointer', marginBottom: 12 }}>
+          <span style={{ color: '#ef4444', fontWeight: 700, fontSize: 16 }}>G</span>
           Continuer avec Google
         </button>
 
-        <button
-          disabled
-          className="w-full flex items-center justify-center gap-3 py-3 rounded-xl bg-black text-white font-semibold text-sm opacity-50 cursor-not-allowed"
-        >
+        <button disabled style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '12px 0', borderRadius: 12, background: '#1f2937', color: 'white', fontWeight: 600, fontSize: 14, border: 'none', cursor: 'not-allowed', opacity: 0.5 }}>
           🍎 Continuer avec Apple
         </button>
 
-        <p className="text-center text-xs text-gray-400 mt-5">
+        <p style={{ textAlign: 'center', fontSize: 12, color: '#9ca3af', marginTop: 20 }}>
           En continuant, vous acceptez nos{' '}
-          <span className={`${config.linkColor} font-medium cursor-pointer`}>conditions d&apos;utilisation</span>
+          <span style={{ color: cfg.accentColor, fontWeight: 500, cursor: 'pointer' }}>conditions d&apos;utilisation</span>
         </p>
       </div>
     </div>
@@ -175,7 +136,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><p>Chargement…</p></div>}>
+    <Suspense fallback={<div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><p>Chargement…</p></div>}>
       <LoginForm />
     </Suspense>
   );
