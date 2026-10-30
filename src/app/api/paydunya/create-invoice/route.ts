@@ -89,14 +89,16 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString(),
     });
 
-    const checkoutUrl = data.response_text === 'Pending' && data.token
-      ? `${PAYDUNYA_BASE_URL.replace('/api/v1', '').replace('/sandbox-api/v1', '')}/checkout/invoice/${data.token}`
-      : null;
+    const isLive = process.env.PAYDUNYA_MODE === 'live';
+    const checkoutBase = isLive
+      ? 'https://app.paydunya.com/checkout/invoice'
+      : 'https://app.paydunya.com/sandbox-checkout/invoice';
+    const checkoutUrl = data.token ? `${checkoutBase}/${data.token}` : null;
 
     return NextResponse.json({
       success: true,
       token: data.token,
-      checkoutUrl: checkoutUrl || `https://app.paydunya.com/checkout/invoice/${data.token}`,
+      checkoutUrl,
     });
   } catch (err) {
     console.error('PayDunya create error:', err);
