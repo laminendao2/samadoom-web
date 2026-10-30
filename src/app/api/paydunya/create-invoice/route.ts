@@ -89,11 +89,9 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString(),
     });
 
-    const isLive = process.env.PAYDUNYA_MODE === 'live';
-    const checkoutBase = isLive
-      ? 'https://app.paydunya.com/checkout/invoice'
-      : 'https://app.paydunya.com/sandbox-checkout/invoice';
-    const checkoutUrl = data.token ? `${checkoutBase}/${data.token}` : null;
+    // PayDunya retourne l'URL de paiement directement dans response_text
+    // Format: https://payment.paydunya.com/payment/{token}
+    const checkoutUrl = data.response_text || null;
 
     return NextResponse.json({
       success: true,
