@@ -1,5 +1,6 @@
 'use client';
 import { useAuth } from '@/context/AuthContext';
+import ShareAppBanner from '@/components/ShareAppBanner';
 
 const GREETINGS: Record<string, string> = {
   eleve:      'Bismillah ! Prêt à apprendre ?',
@@ -85,6 +86,11 @@ export default function DashboardPage() {
             className="bg-white text-orange-600 font-bold px-6 py-2.5 rounded-xl hover:bg-orange-50 transition-colors whitespace-nowrap">
             Voir les plans
           </a>
+        </div>
+      )}
+      {['eleve', 'parent'].includes(role) && (
+        <div className="mt-4">
+          <ShareAppBanner variant="compact" />
         </div>
       )}
     </div>
