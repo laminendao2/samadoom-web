@@ -8,6 +8,8 @@ const NAV_BY_ROLE: Record<string, { href: string; icon: string; label: string }[
   eleve: [
     { href: '/dashboard',  icon: '🏠', label: 'Accueil' },
     { href: '/progres',    icon: '📊', label: 'Mes progrès' },
+    { href: '/cours',      icon: '🎒', label: 'Mes cours' },
+    { href: '/coran',      icon: '📖', label: 'Coran' },
     { href: '/abonnement', icon: '⭐', label: 'Abonnement' },
     { href: '/profile',    icon: '👤', label: 'Profil' },
   ],
