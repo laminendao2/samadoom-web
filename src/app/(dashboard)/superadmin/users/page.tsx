@@ -64,7 +64,7 @@ export default function SuperAdminUsersPage() {
 
   async function loadUsers() {
     setLoading(true);
-    const snap = await getDocs(query(collection(db, 'users'), orderBy('createdAt', 'desc')));
+    const snap = await getDocs(collection(db, 'users'));
     const rows = snap.docs.map(d => ({ uid: d.id, ...d.data() }) as UserRow);
     setUsers(rows);
     setFiltered(rows);
