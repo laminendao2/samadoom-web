@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 
 const NAV_BY_ROLE: Record<string, { href: string; icon: string; label: string }[]> = {
@@ -50,12 +51,55 @@ const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin', superadmin: 'Super Admin',
 };
 
+const ROLE_ICONS: Record<string, string> = {
+  eleve: '📚', parent: '👨‍👩‍👧', professeur: '🎓', admin: '🏫', superadmin: '⚡',
+};
+
+function RoleSwitcher({ profile, switchRole, onSwitch }: {
+  profile: { role: string; roles?: string[] };
+  switchRole: (r: string) => void;
+  onSwitch?: () => void;
+}) {
+  const router = useRouter();
+  const availableRoles = [...new Set([...(profile.roles || []), profile.role])];
+  if (availableRoles.length <= 1) return null;
+
+  return (
+    <div className="px-3 pb-2">
+      <p className="text-white/40 text-[10px] uppercase tracking-widest font-semibold px-1 mb-1">Changer de rôle</p>
+      <div className="space-y-0.5">
+        {availableRoles.map((r) => (
+          <button
+            key={r}
+            onClick={() => {
+              switchRole(r);
+              router.push('/dashboard');
+              onSwitch?.();
+            }}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all ${
+              r === profile.role
+                ? 'bg-white/25 text-white font-semibold'
+                : 'text-white/60 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <span className="text-base w-5 text-center">{ROLE_ICONS[r] || '👤'}</span>
+            <span className="flex-1 text-left">{ROLE_LABELS[r] || r}</span>
+            {r === profile.role && <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full">actif</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Sidebar() {
-  const { profile, logout } = useAuth();
+  const { profile, logout, switchRole } = useAuth();
   const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
   const role = profile?.role || 'eleve';
   const nav  = NAV_BY_ROLE[role] || NAV_BY_ROLE.eleve;
   const grad = ROLE_COLORS[role] || ROLE_COLORS.eleve;
+  const hasMultipleRoles = (profile?.roles?.length ?? 0) > 1;
 
   return (
     <>
@@ -102,6 +146,13 @@ export default function Sidebar() {
           })}
         </nav>
 
+        {/* Role switcher */}
+        {hasMultipleRoles && profile && (
+          <div className="border-t border-white/10 pt-3">
+            <RoleSwitcher profile={profile} switchRole={switchRole} />
+          </div>
+        )}
+
         {/* Logout */}
         <div className="p-4 border-t border-white/10">
           <button onClick={logout}
@@ -114,7 +165,7 @@ export default function Sidebar() {
 
       {/* BOTTOM NAV — mobile */}
       <nav className={`md:hidden fixed bottom-0 left-0 right-0 z-50 bg-gradient-to-r ${grad} border-t border-white/10 flex justify-around items-center h-16 px-2`}>
-        {nav.slice(0, 5).map((item) => {
+        {nav.slice(0, hasMultipleRoles ? 4 : 5).map((item) => {
           const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
           return (
             <Link key={item.href + item.label} href={item.href}
@@ -126,7 +177,28 @@ export default function Sidebar() {
             </Link>
           );
         })}
+        {/* Role switcher button on mobile */}
+        {hasMultipleRoles && (
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg opacity-60 hover:opacity-100 transition-all"
+          >
+            <span className="text-xl">🔄</span>
+            <span className="text-white text-[10px] font-medium leading-none">Rôle</span>
+          </button>
+        )}
       </nav>
+
+      {/* Mobile role switcher modal */}
+      {mobileOpen && profile && (
+        <div className="md:hidden fixed inset-0 z-[60] flex items-end">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
+          <div className={`relative w-full bg-gradient-to-b ${grad} rounded-t-2xl p-6 pb-10`}>
+            <h3 className="text-white font-bold text-lg mb-4">Changer de rôle</h3>
+            <RoleSwitcher profile={profile} switchRole={switchRole} onSwitch={() => setMobileOpen(false)} />
+          </div>
+        </div>
+      )}
     </>
   );
 }

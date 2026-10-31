@@ -28,6 +28,7 @@ interface AuthContextValue {
   signUp: (email: string, password: string, name: string, role: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
+  switchRole: (role: string) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -105,8 +106,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => signOut(auth);
 
+  // Switch active role locally (no Firestore write) — only allowed roles in profile.roles
+  const switchRole = (newRole: string) => {
+    if (!profile) return;
+    const allowed = profile.roles || [profile.role];
+    if (!allowed.includes(newRole) && newRole !== profile.role) return;
+    setProfile({ ...profile, role: newRole });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signInWithGoogle, logout }}>
+    <AuthContext.Provider value={{ user, profile, loading, signIn, signUp, signInWithGoogle, logout, switchRole }}>
       {children}
     </AuthContext.Provider>
   );
