@@ -4,7 +4,7 @@ import {
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   signInWithPopup, GoogleAuthProvider, signOut, User,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 
 export interface UserProfile {
@@ -14,8 +14,9 @@ export interface UserProfile {
   role: string;
   roles?: string[];
   isPro: boolean;
-  subscriptionEnd?: string;
-  etablissement?: string;
+  subscriptionEnd?: Date | null;
+  ecoleId?: string;
+  groupeId?: string;
   photoURL?: string;
 }
 
@@ -31,6 +32,14 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+function resolveSubscriptionEnd(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Timestamp) return value.toDate();
+  if (typeof value === 'string') { const d = new Date(value); return isNaN(d.getTime()) ? null : d; }
+  if (typeof value === 'number') return new Date(value);
+  return null;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser]       = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -43,10 +52,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const snap = await getDoc(doc(db, 'users', u.uid));
         if (snap.exists()) {
           const data = snap.data();
-          const isPro = data.subscriptionEnd
-            ? new Date(data.subscriptionEnd) > new Date()
-            : false;
-          setProfile({ uid: u.uid, email: u.email || '', isPro, ...data } as UserProfile);
+          const subscriptionEnd = resolveSubscriptionEnd(data.subscriptionEnd);
+          const isPro = subscriptionEnd ? subscriptionEnd > new Date() : false;
+          setProfile({
+            uid: u.uid,
+            email: u.email || '',
+            name: data.name || '',
+            role: data.role || 'eleve',
+            roles: data.roles || [],
+            isPro,
+            subscriptionEnd,
+            ecoleId: data.ecoleId || null,
+            groupeId: data.groupeId || null,
+            photoURL: data.photoURL || u.photoURL || null,
+          } as UserProfile);
         }
       } else {
         setProfile(null);
