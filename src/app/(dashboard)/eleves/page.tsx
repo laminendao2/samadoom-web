@@ -31,17 +31,19 @@ interface EleveRow {
   coranProgress?: Record<string, unknown>;
 }
 
-function calcProgress(coranProgress?: Record<string, unknown>) {
+type CoranProg = Record<string, { versesRead?: number; completed?: boolean; versesDone?: Record<string, boolean> }>;
+
+function calcProgress(coranProgress?: CoranProg) {
   if (!coranProgress) return { done: 0, total: 6236, pct: 0 };
   let done = 0;
-  Object.entries(coranProgress).forEach(([surahKey, data]) => {
-    const surahNum = parseInt(surahKey.replace('surah_', ''));
-    if (!surahNum || isNaN(surahNum)) return;
-    const d = data as Record<string, unknown>;
-    const total = SURAH_VERSE_COUNTS[surahNum - 1] || 0;
-    const memorized = Object.values(d).filter((v: any) => v === true || v?.done === true).length;
-    done += Math.min(memorized, total);
-  });
+  for (let i = 1; i <= 114; i++) {
+    const data = coranProgress[String(i)];
+    if (!data) continue;
+    const total = SURAH_VERSE_COUNTS[i - 1] || 0;
+    if (data.completed) { done += total; }
+    else if (data.versesDone) { done += Math.min(Object.values(data.versesDone).filter(Boolean).length, total); }
+    else if (typeof data.versesRead === 'number') { done += Math.min(data.versesRead, total); }
+  }
   return { done, total: 6236, pct: Math.round((done / 6236) * 100) };
 }
 
@@ -190,7 +192,7 @@ export default function ProfElevesPage() {
                       </thead>
                       <tbody className="divide-y divide-gray-50">
                         {filtered
-                          .map(e => ({ ...e, prog: calcProgress(e.coranProgress as Record<string, unknown>) }))
+                          .map(e => ({ ...e, prog: calcProgress(e.coranProgress as CoranProg) }))
                           .sort((a, b) => b.prog.pct - a.prog.pct)
                           .map(e => (
                             <tr key={e.uid} className="hover:bg-orange-50/30 transition-colors">

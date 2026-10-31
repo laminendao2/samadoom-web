@@ -29,7 +29,7 @@ interface Enfant {
   email: string;
   role: string;
   ecoleId?: string;
-  coranProgress?: Record<string, Record<string, boolean>>;
+  coranProgress?: Record<string, { versesRead?: number; completed?: boolean; versesDone?: Record<string, boolean> }>;
 }
 
 interface SurahProgress {
@@ -40,36 +40,37 @@ interface SurahProgress {
   pct: number;
 }
 
-function calcSurahProgress(coranProgress?: Record<string, Record<string, boolean>>): SurahProgress[] {
+function calcSurahProgress(coranProgress?: Record<string, { versesRead?: number; completed?: boolean; versesDone?: Record<string, boolean> }>): SurahProgress[] {
   if (!coranProgress) return [];
-  return Object.entries(coranProgress)
-    .map(([key, data]) => {
-      const num = parseInt(key.replace('surah_', ''));
-      if (!num || isNaN(num)) return null;
-      const total = SURAH_VERSE_COUNTS[num - 1] || 0;
-      const done = Object.values(data).filter(v => v === true).length;
-      return {
-        num,
-        name: SURAH_NAMES[num] || `Sourate ${num}`,
-        done,
-        total,
-        pct: total ? Math.round((done / total) * 100) : 0,
-      };
-    })
-    .filter(Boolean)
-    .sort((a, b) => a!.num - b!.num) as SurahProgress[];
+  const result: SurahProgress[] = [];
+  for (let i = 1; i <= 114; i++) {
+    const data = coranProgress[String(i)];
+    if (!data) continue;
+    const total = SURAH_VERSE_COUNTS[i - 1] || 0;
+    let done = 0;
+    if (data.completed) {
+      done = total;
+    } else if (data.versesDone) {
+      done = Math.min(Object.values(data.versesDone).filter(Boolean).length, total);
+    } else if (typeof data.versesRead === 'number') {
+      done = Math.min(data.versesRead, total);
+    }
+    if (done > 0) result.push({ num: i, name: SURAH_NAMES[i] || `Sourate ${i}`, done, total, pct: total ? Math.round((done / total) * 100) : 0 });
+  }
+  return result.sort((a, b) => a.num - b.num);
 }
 
-function calcTotal(coranProgress?: Record<string, Record<string, boolean>>) {
+function calcTotal(coranProgress?: Record<string, { versesRead?: number; completed?: boolean; versesDone?: Record<string, boolean> }>) {
   if (!coranProgress) return { done: 0, pct: 0 };
   let done = 0;
-  Object.entries(coranProgress).forEach(([key, data]) => {
-    const num = parseInt(key.replace('surah_', ''));
-    if (!num || isNaN(num)) return;
-    const total = SURAH_VERSE_COUNTS[num - 1] || 0;
-    const memorized = Object.values(data).filter(v => v === true).length;
-    done += Math.min(memorized, total);
-  });
+  for (let i = 1; i <= 114; i++) {
+    const data = coranProgress[String(i)];
+    if (!data) continue;
+    const total = SURAH_VERSE_COUNTS[i - 1] || 0;
+    if (data.completed) { done += total; }
+    else if (data.versesDone) { done += Math.min(Object.values(data.versesDone).filter(Boolean).length, total); }
+    else if (typeof data.versesRead === 'number') { done += Math.min(data.versesRead, total); }
+  }
   return { done, pct: Math.round((done / 6236) * 100) };
 }
 
