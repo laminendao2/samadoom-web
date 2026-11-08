@@ -18,9 +18,11 @@ const PLANS: Record<string, { name: string; amount: number; description: string 
   },
 };
 
+const REFERRAL_DISCOUNT = 0.10; // 10% de réduction pour l'acheteur
+
 export async function POST(req: NextRequest) {
   try {
-    const { plan, userId, userEmail } = await req.json();
+    const { plan, userId, userEmail, referralCode } = await req.json();
 
     if (!plan || !PLANS[plan]) {
       return NextResponse.json({ error: 'Plan invalide' }, { status: 400 });
@@ -32,10 +34,32 @@ export async function POST(req: NextRequest) {
     const planInfo = PLANS[plan];
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://samadoom.com';
 
+    // --- Gestion du code de parrainage ---
+    let finalAmount = planInfo.amount;
+    let validatedReferralCode: string | null = null;
+    let referrerId: string | null = null;
+
+    if (referralCode) {
+      const code = referralCode.toUpperCase().trim();
+      const refSnap = await adminDb.collection('referralCodes').doc(code).get();
+
+      if (refSnap.exists) {
+        const refData = refSnap.data()!;
+        // Bloquer l'auto-parrainage
+        if (refData.userId !== userId) {
+          finalAmount = Math.round(planInfo.amount * (1 - REFERRAL_DISCOUNT));
+          validatedReferralCode = code;
+          referrerId = refData.userId;
+        }
+      }
+    }
+
     const body = {
       invoice: {
-        total_amount: planInfo.amount,
-        description: planInfo.description,
+        total_amount: finalAmount,
+        description: validatedReferralCode
+          ? `${planInfo.description} (-10% parrainage)`
+          : planInfo.description,
       },
       store: {
         name: 'Sama Doom',
@@ -54,6 +78,9 @@ export async function POST(req: NextRequest) {
         userId,
         userEmail,
         plan,
+        referralCode: validatedReferralCode,
+        referrerId,
+        originalAmount: planInfo.amount,
       },
     };
 
@@ -81,22 +108,25 @@ export async function POST(req: NextRequest) {
       userId,
       userEmail,
       plan,
-      amount: planInfo.amount,
+      amount: finalAmount,
+      originalAmount: planInfo.amount,
       currency: 'XOF',
       status: 'pending',
       provider: 'paydunya',
       token: data.token,
+      referralCode: validatedReferralCode,
+      referrerId,
       createdAt: new Date().toISOString(),
     });
 
-    // PayDunya retourne l'URL de paiement directement dans response_text
-    // Format: https://payment.paydunya.com/payment/{token}
     const checkoutUrl = data.response_text || null;
 
     return NextResponse.json({
       success: true,
       token: data.token,
       checkoutUrl,
+      discountApplied: validatedReferralCode ? REFERRAL_DISCOUNT * 100 : 0,
+      finalAmount,
     });
   } catch (err) {
     console.error('PayDunya create error:', err);

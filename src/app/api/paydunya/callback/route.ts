@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
+
+const REFERRAL_COMMISSION = 0.20; // 20% du montant payé pour le parrain
 
 export async function POST(req: NextRequest) {
   try {
@@ -48,6 +51,40 @@ export async function POST(req: NextRequest) {
       });
 
       console.log(`✅ Plan ${payment.plan} activé pour ${payment.userId}`);
+
+      // --- Gestion du parrainage ---
+      if (payment.referralCode && payment.referrerId) {
+        try {
+          const amountPaid = payment.amount; // montant réellement payé (après réduction)
+          const commission = Math.round(amountPaid * REFERRAL_COMMISSION);
+
+          // Enregistrer le gain
+          await adminDb.collection('referralEarnings').add({
+            referrerId: payment.referrerId,
+            referredId: payment.userId,
+            referredEmail: payment.userEmail,
+            referralCode: payment.referralCode,
+            plan: payment.plan,
+            amountPaid,
+            commission,
+            paymentToken: token,
+            status: 'confirmed',
+            createdAt: new Date().toISOString(),
+          });
+
+          // Mettre à jour le solde et stats du parrain
+          await adminDb.collection('referralCodes').doc(payment.referralCode).update({
+            balance: FieldValue.increment(commission),
+            totalEarned: FieldValue.increment(commission),
+            usageCount: FieldValue.increment(1),
+          });
+
+          console.log(`💰 Commission ${commission} FCFA créditée au parrain ${payment.referrerId} (code: ${payment.referralCode})`);
+        } catch (refErr) {
+          // Ne pas bloquer le paiement si le parrainage échoue
+          console.error('Referral commission error:', refErr);
+        }
+      }
     } else if (status === 'cancelled' || status === 'failed') {
       await paymentRef.update({
         status: status,
