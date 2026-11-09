@@ -7,7 +7,7 @@ import Link from 'next/link';
 function SuccessContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const plan = searchParams.get('plan') || 'mensuel';
   const token = searchParams.get('token');
 
@@ -15,8 +15,18 @@ function SuccessContent() {
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
-    if (!token || !user) {
+    // Attendre que Firebase ait chargé l'état auth avant de vérifier
+    if (authLoading) return;
+
+    if (!token) {
+      // Pas de token PayDunya (ex: retour Stripe) → abonnement géré via webhook
       setVerifyStatus('activated');
+      return;
+    }
+
+    if (!user) {
+      setVerifyStatus('error');
+      setErrorMsg('Vous devez être connecté pour activer votre abonnement.');
       return;
     }
 
@@ -48,7 +58,7 @@ function SuccessContent() {
     };
 
     verify();
-  }, [token, user]);
+  }, [token, user, authLoading]);
 
   useEffect(() => {
     if (verifyStatus === 'activated') {
