@@ -8,7 +8,7 @@ const PAYDUNYA_BASE_URL = process.env.PAYDUNYA_MODE === 'live'
 const PLANS: Record<string, { name: string; amount: number; description: string }> = {
   mensuel: {
     name: 'Abonnement Mensuel',
-    amount: 3000, // FCFA
+    amount: 100, // FCFA — TEST (remettre à 3000)
     description: 'Accès complet Sama Doom — 1 mois',
   },
   annuel: {

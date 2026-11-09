@@ -24,6 +24,7 @@ const NAV_BY_ROLE: Record<string, { href: string; icon: string; label: string }[
   professeur: [
     { href: '/dashboard',  icon: '🏠', label: 'Accueil' },
     { href: '/eleves',     icon: '🎓', label: 'Mes élèves' },
+    { href: '/abonnement', icon: '⭐', label: 'Abonnement' },
     { href: '/referral',   icon: '🤝', label: 'Parrainage' },
     { href: '/profile',    icon: '👤', label: 'Profil' },
   ],
@@ -31,6 +32,7 @@ const NAV_BY_ROLE: Record<string, { href: string; icon: string; label: string }[
     { href: '/dashboard',   icon: '🏠',  label: 'Accueil' },
     { href: '/admin/users', icon: '👥',  label: 'Membres' },
     { href: '/admin/ecole', icon: '🏫',  label: 'Mon école' },
+    { href: '/abonnement',  icon: '⭐',  label: 'Abonnement' },
     { href: '/referral',    icon: '🤝',  label: 'Parrainage' },
     { href: '/profile',     icon: '👤',  label: 'Profil' },
   ],
