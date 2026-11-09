@@ -36,8 +36,9 @@ const NAV_BY_ROLE: Record<string, { href: string; icon: string; label: string }[
     { href: '/superadmin',        icon: '📊',  label: 'Vue globale' },
     { href: '/superadmin/users',  icon: '👥',  label: 'Utilisateurs' },
     { href: '/superadmin/ecoles', icon: '🏫',  label: 'Écoles' },
-    { href: '/abonnement',        icon: '💳',  label: 'Abonnements' },
-    { href: '/profile',           icon: '👤',  label: 'Profil' },
+    { href: '/abonnement',              icon: '💳',  label: 'Abonnements' },
+    { href: '/superadmin/referrals',    icon: '🤝',  label: 'Parrainage' },
+    { href: '/profile',                 icon: '👤',  label: 'Profil' },
   ],
 };
 
