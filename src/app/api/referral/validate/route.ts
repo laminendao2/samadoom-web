@@ -32,12 +32,29 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ valid: false, error: 'Vous ne pouvez pas utiliser votre propre code' });
     }
 
-    // Vérifier que le parrain a un abonnement actif (isPro Firestore OU planExpiresAt encore valide)
+    // Vérifier que le parrain a un abonnement actif (isPro Firestore OU planExpiresAt OU subscriptionEnd)
     const referrerDoc = await adminDb.collection('users').doc(referral.userId).get();
     const referrerData = referrerDoc.data();
-    const isReferrerPro = referrerData?.isPro === true ||
-      (referrerData?.planExpiresAt && new Date(referrerData.planExpiresAt) > new Date()) ||
-      (referrerData?.subscriptionEnd && new Date(referrerData.subscriptionEnd) > new Date());
+
+    // Convertir subscriptionEnd (peut être Timestamp Firestore ou string)
+    const toDate = (val: unknown): Date | null => {
+      if (!val) return null;
+      if (val && typeof (val as { toDate?: () => Date }).toDate === 'function') {
+        return (val as { toDate: () => Date }).toDate();
+      }
+      if (typeof val === 'string' || typeof val === 'number') {
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      return null;
+    };
+
+    const now = new Date();
+    const isReferrerPro =
+      referrerData?.isPro === true ||
+      (referrerData?.planExpiresAt && toDate(referrerData.planExpiresAt) && toDate(referrerData.planExpiresAt)! > now) ||
+      (referrerData?.subscriptionEnd && toDate(referrerData.subscriptionEnd) && toDate(referrerData.subscriptionEnd)! > now);
+
     if (!isReferrerPro) {
       return NextResponse.json({ valid: false, error: 'Ce code n\'est plus actif' });
     }
