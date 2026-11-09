@@ -2,6 +2,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
+import { getAuth } from 'firebase/auth';
 
 const BASE_PLANS = [
   {
@@ -43,6 +44,9 @@ function AbonnementContent() {
   const [referralInfo, setReferralInfo] = useState<ReferralInfo | null>(null);
   const [referralError, setReferralError] = useState('');
   const [referralLoading, setReferralLoading] = useState(false);
+  const [cancelConfirm, setCancelConfirm] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [cancelSuccess, setCancelSuccess] = useState(false);
 
   // Détecter le code dans l'URL (?ref=CODE)
   useEffect(() => {
@@ -83,6 +87,34 @@ function AbonnementContent() {
   const getDiscountedPrice = (basePrice: number) => {
     if (!referralInfo?.valid) return basePrice;
     return Math.round(basePrice * (1 - referralInfo.discountPercent / 100));
+  };
+
+  const handleCancelSubscription = async () => {
+    if (!user) return;
+    setCancelLoading(true);
+    setError('');
+    try {
+      const auth = getAuth();
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/cancel-subscription', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCancelSuccess(true);
+        setCancelConfirm(false);
+      } else {
+        setError(data.error || 'Erreur lors de l\'annulation');
+      }
+    } catch {
+      setError('Erreur réseau. Réessayez.');
+    } finally {
+      setCancelLoading(false);
+    }
   };
 
   const handlePaydunya = async (planId: string) => {
@@ -146,13 +178,84 @@ function AbonnementContent() {
       <h1 style={{ fontSize: 26, fontWeight: 900, color: '#111827', marginBottom: 8 }}>Abonnement Pro</h1>
       <p style={{ color: '#6b7280', marginBottom: 32 }}>Débloquez tout le contenu islamique pour vous et votre famille.</p>
 
-      {profile?.isPro && (
-        <div style={{ marginBottom: 32, padding: 16, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 28 }}>⭐</span>
-          <div>
-            <p style={{ fontWeight: 700, color: '#166534', margin: 0 }}>Vous avez déjà le Plan Pro !</p>
-            <p style={{ fontSize: 13, color: '#15803d', margin: '2px 0 0' }}>Profitez de tout le contenu sans restriction.</p>
+      {cancelSuccess && (
+        <div style={{ marginBottom: 24, padding: 16, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 16 }}>
+          <p style={{ fontWeight: 700, color: '#dc2626', margin: 0 }}>✅ Abonnement annulé</p>
+          <p style={{ fontSize: 13, color: '#b91c1c', margin: '4px 0 0' }}>Votre accès Pro a été révoqué. Rechargez la page pour voir les changements.</p>
+        </div>
+      )}
+
+      {profile?.isPro && !cancelSuccess && (
+        <div style={{ marginBottom: 32, padding: 16, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <span style={{ fontSize: 28 }}>⭐</span>
+            <div>
+              <p style={{ fontWeight: 700, color: '#166534', margin: 0 }}>Vous avez le Plan Pro !</p>
+              <p style={{ fontSize: 13, color: '#15803d', margin: '2px 0 0' }}>
+                Plan : <strong>{profile.plan === 'mensuel' ? 'Mensuel' : profile.plan === 'annuel' ? 'Annuel' : profile.plan}</strong>
+                {profile.planExpiresAt && (
+                  <> · Expire le <strong>{new Date(profile.planExpiresAt).toLocaleDateString('fr-FR')}</strong></>
+                )}
+              </p>
+            </div>
           </div>
+
+          {/* Bouton annulation */}
+          {!cancelConfirm ? (
+            <button
+              onClick={() => setCancelConfirm(true)}
+              style={{
+                padding: '8px 16px',
+                background: 'transparent',
+                color: '#dc2626',
+                border: '1.5px solid #fca5a5',
+                borderRadius: 10,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}>
+              Annuler mon abonnement
+            </button>
+          ) : (
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 12, padding: 14 }}>
+              <p style={{ fontSize: 14, color: '#7f1d1d', fontWeight: 600, margin: '0 0 12px' }}>
+                ⚠️ Êtes-vous sûr ? Votre accès Pro sera immédiatement révoqué.
+              </p>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  onClick={handleCancelSubscription}
+                  disabled={cancelLoading}
+                  style={{
+                    padding: '8px 18px',
+                    background: '#dc2626',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 10,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: cancelLoading ? 'not-allowed' : 'pointer',
+                    opacity: cancelLoading ? 0.7 : 1,
+                  }}>
+                  {cancelLoading ? 'Annulation…' : 'Oui, annuler'}
+                </button>
+                <button
+                  onClick={() => setCancelConfirm(false)}
+                  disabled={cancelLoading}
+                  style={{
+                    padding: '8px 18px',
+                    background: 'white',
+                    color: '#374151',
+                    border: '1.5px solid #d1d5db',
+                    borderRadius: 10,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}>
+                  Garder mon abonnement
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
