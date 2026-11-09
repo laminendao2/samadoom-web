@@ -55,6 +55,14 @@ export async function POST(req: NextRequest) {
       // --- Gestion du parrainage ---
       if (payment.referralCode && payment.referrerId) {
         try {
+          // Vérifier que le parrain a toujours un abonnement actif
+          const referrerDoc = await adminDb.collection('users').doc(payment.referrerId).get();
+          const referrerData = referrerDoc.data();
+          if (!referrerData?.isPro) {
+            console.log(`⚠️ Parrain ${payment.referrerId} n'a pas d'abonnement actif — commission non créditée`);
+            return NextResponse.json({ received: true });
+          }
+
           const amountPaid = payment.amount; // montant réellement payé (après réduction)
           const commission = Math.round(amountPaid * REFERRAL_COMMISSION);
 
