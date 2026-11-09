@@ -389,7 +389,7 @@ function AbonnementContent() {
 
               {/* Bouton Mobile Money */}
               <button
-                disabled={loading === plan.id || !!profile?.isPro}
+                disabled={loading === plan.id}
                 onClick={() => handlePaydunya(plan.id)}
                 style={{
                   width: '100%',
@@ -400,16 +400,15 @@ function AbonnementContent() {
                   fontWeight: 700,
                   fontSize: 14,
                   border: 'none',
-                  cursor: loading === plan.id || profile?.isPro ? 'not-allowed' : 'pointer',
-                  opacity: loading === plan.id || profile?.isPro ? 0.7 : 1,
+                  cursor: loading === plan.id ? 'not-allowed' : 'pointer',
+                  opacity: loading === plan.id ? 0.7 : 1,
                   marginBottom: 8,
                 }}>
-                {loading === plan.id ? 'Redirection…' : profile?.isPro ? 'Plan actuel' : '🌍 Mobile Money (Orange, Wave…)'}
+                {loading === plan.id ? 'Redirection…' : '🌍 Mobile Money (Orange, Wave…)'}
               </button>
 
               {/* Bouton Stripe */}
-              {!profile?.isPro && (
-                <button
+              <button
                   disabled={loading === `stripe-${plan.id}`}
                   onClick={() => handleStripe(plan.id)}
                   style={{
@@ -426,7 +425,6 @@ function AbonnementContent() {
                   }}>
                   {loading === `stripe-${plan.id}` ? 'Redirection…' : '💳 Carte bancaire internationale'}
                 </button>
-              )}
             </div>
           );
         })}

@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       valid: true,
-      discountPercent: 10,
+      discountPercent: 5,
       referrerName: referral.userName,
       code: referral.code,
     });
