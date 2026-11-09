@@ -18,6 +18,9 @@ export interface UserProfile {
   ecoleId?: string;
   groupeId?: string;
   photoURL?: string;
+  plan?: string | null;
+  planExpiresAt?: string | null;
+  planCancelledAt?: string | null;
 }
 
 interface AuthContextValue {
