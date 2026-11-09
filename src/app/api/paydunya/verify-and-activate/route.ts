@@ -105,7 +105,17 @@ export async function POST(req: NextRequest) {
       try {
         const referrerDoc = await adminDb.collection('users').doc(payment.referrerId).get();
         const referrerData = referrerDoc.data();
-        if (referrerData?.isPro) {
+        const toDate = (val: unknown): Date | null => {
+          if (!val) return null;
+          if (val && typeof (val as { toDate?: () => Date }).toDate === 'function') return (val as { toDate: () => Date }).toDate();
+          if (typeof val === 'string' || typeof val === 'number') { const d = new Date(val as string); return isNaN(d.getTime()) ? null : d; }
+          return null;
+        };
+        const now = new Date();
+        const isReferrerPro = referrerData?.isPro === true ||
+          (toDate(referrerData?.planExpiresAt) !== null && toDate(referrerData?.planExpiresAt)! > now) ||
+          (toDate(referrerData?.subscriptionEnd) !== null && toDate(referrerData?.subscriptionEnd)! > now);
+        if (isReferrerPro) {
           const commission = Math.round(payment.amount * REFERRAL_COMMISSION);
           await adminDb.collection('referralEarnings').add({
             referrerId: payment.referrerId,
