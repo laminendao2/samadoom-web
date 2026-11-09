@@ -32,10 +32,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ valid: false, error: 'Vous ne pouvez pas utiliser votre propre code' });
     }
 
-    // Vérifier que le parrain a un abonnement actif
+    // Vérifier que le parrain a un abonnement actif (isPro Firestore OU planExpiresAt encore valide)
     const referrerDoc = await adminDb.collection('users').doc(referral.userId).get();
     const referrerData = referrerDoc.data();
-    if (!referrerData?.isPro) {
+    const isReferrerPro = referrerData?.isPro === true ||
+      (referrerData?.planExpiresAt && new Date(referrerData.planExpiresAt) > new Date()) ||
+      (referrerData?.subscriptionEnd && new Date(referrerData.subscriptionEnd) > new Date());
+    if (!isReferrerPro) {
       return NextResponse.json({ valid: false, error: 'Ce code n\'est plus actif' });
     }
 

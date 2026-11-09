@@ -76,7 +76,7 @@ export default function ReferralPage() {
 
   const shareWhatsApp = () => {
     if (!referral?.referralUrl || !referral?.code) return;
-    const message = `🎓 Rejoins Sama Doom — l'app d'éducation islamique !\n\nUtilise mon code *${referral.code}* pour obtenir *-10%* sur ton abonnement 🎁\n\n👉 ${referral.referralUrl}`;
+    const message = `🎓 Rejoins Sama Doom — l'app d'éducation islamique !\n\nUtilise mon code *${referral.code}* pour obtenir *-5%* sur ton abonnement 🎁\n\n👉 ${referral.referralUrl}`;
     const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
   };
@@ -108,8 +108,8 @@ export default function ReferralPage() {
           🤝 Programme de parrainage
         </h1>
         <p style={{ color: '#6b7280', fontSize: 15 }}>
-          Partagez votre code — vos filleuls payent <strong style={{ color: '#166534' }}>-10%</strong>,
-          vous recevez <strong style={{ color: '#166534' }}>20% de commission</strong> à chaque paiement.
+          Partagez votre code — vos filleuls payent <strong style={{ color: '#166534' }}>-5%</strong>,
+          vous recevez <strong style={{ color: '#166534' }}>10% de commission</strong> à chaque paiement.
         </p>
       </div>
 
@@ -279,8 +279,8 @@ export default function ReferralPage() {
             </h3>
             {[
               { step: '1', text: 'Partagez votre code ou lien à vos élèves, parents ou amis' },
-              { step: '2', text: 'Ils arrivent sur la page abonnement avec -10% appliqué automatiquement' },
-              { step: '3', text: 'Dès qu\'ils paient, vous recevez 20% du montant payé sur votre solde' },
+              { step: '2', text: 'Ils arrivent sur la page abonnement avec -5% appliqué automatiquement' },
+              { step: '3', text: 'Dès qu\'ils paient, vous recevez 10% du montant payé sur votre solde' },
               { step: '4', text: 'La commission s\'accumule à chaque renouvellement' },
             ].map(item => (
               <div key={item.step} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>

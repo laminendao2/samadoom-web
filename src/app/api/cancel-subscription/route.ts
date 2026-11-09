@@ -29,16 +29,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Aucun abonnement actif' }, { status: 400 });
     }
 
-    // Annuler l'abonnement
+    if (userData.cancelAtPeriodEnd) {
+      return NextResponse.json({ error: 'Abonnement déjà en cours d\'annulation' }, { status: 400 });
+    }
+
+    // Marquer pour annulation à la fin de la période — accès Pro maintenu jusqu'à planExpiresAt
     await adminDb.collection('users').doc(uid).update({
-      isPro: false,
-      plan: null,
+      cancelAtPeriodEnd: true,
       planCancelledAt: new Date().toISOString(),
     });
 
-    console.log(`❌ Abonnement annulé pour ${uid} (plan: ${userData.plan})`);
+    console.log(`⏳ Annulation programmée pour ${uid} (plan: ${userData.plan}, expire: ${userData.planExpiresAt})`);
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      planExpiresAt: userData.planExpiresAt ?? null,
+    });
   } catch (err) {
     console.error('Cancel subscription error:', err);
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });

@@ -21,6 +21,7 @@ export interface UserProfile {
   plan?: string | null;
   planExpiresAt?: string | null;
   planCancelledAt?: string | null;
+  cancelAtPeriodEnd?: boolean;
 }
 
 interface AuthContextValue {
@@ -57,7 +58,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (snap.exists()) {
           const data = snap.data();
           const subscriptionEnd = resolveSubscriptionEnd(data.subscriptionEnd);
-          const isPro = subscriptionEnd ? subscriptionEnd > new Date() : false;
+
+          // Calculer isPro : tenir compte de planExpiresAt et cancelAtPeriodEnd
+          let isPro = false;
+          if (data.isPro) {
+            if (data.planExpiresAt) {
+              const expiresAt = new Date(data.planExpiresAt);
+              isPro = expiresAt > new Date();
+              // Si expiré, mettre à jour Firestore en arrière-plan
+              if (!isPro && !data.cancelAtPeriodEnd) {
+                // Déjà expiré naturellement — ne rien faire ici
+              } else if (!isPro && data.cancelAtPeriodEnd) {
+                // Accès expiré après annulation programmée — on garde isPro=false
+              }
+            } else {
+              // Pas de planExpiresAt → utiliser l'ancienne logique subscriptionEnd
+              isPro = subscriptionEnd ? subscriptionEnd > new Date() : data.isPro === true;
+            }
+          }
+
           setProfile({
             uid: u.uid,
             email: u.email || '',
@@ -69,6 +88,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ecoleId: data.ecoleId || null,
             groupeId: data.groupeId || null,
             photoURL: data.photoURL || u.photoURL || null,
+            plan: data.plan || null,
+            planExpiresAt: data.planExpiresAt || null,
+            planCancelledAt: data.planCancelledAt || null,
+            cancelAtPeriodEnd: data.cancelAtPeriodEnd || false,
           } as UserProfile);
         }
       } else {
