@@ -22,6 +22,7 @@ const NAV_BY_ROLE: Record<string, { href: string; icon: string; label: string }[
   professeur: [
     { href: '/dashboard',  icon: '🏠', label: 'Accueil' },
     { href: '/eleves',     icon: '🎓', label: 'Mes élèves' },
+    { href: '/referral',   icon: '🤝', label: 'Parrainage' },
     { href: '/profile',    icon: '👤', label: 'Profil' },
   ],
   admin: [
