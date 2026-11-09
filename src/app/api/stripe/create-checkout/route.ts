@@ -3,7 +3,7 @@ import Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase-admin';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-10-28.acacia',
+  apiVersion: '2026-10-28.endive',
 });
 
 // Prix en centimes USD
@@ -52,7 +52,6 @@ export async function POST(req: NextRequest) {
 
     // Créer la session Stripe Checkout
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
       mode: 'payment',
       customer_email: userEmail || undefined,
       line_items: [

@@ -4,7 +4,7 @@ import { adminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-10-28.acacia',
+  apiVersion: '2026-10-28.endive',
 });
 
 const REFERRAL_COMMISSION = 0.20;
