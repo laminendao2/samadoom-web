@@ -125,7 +125,7 @@ export default function SuperAdminUsersPage() {
     setSaving(true);
     const end = new Date(grantDate);
     end.setHours(23, 59, 59);
-    await updateDoc(doc(db, 'users', modal.user.uid), { subscriptionEnd: Timestamp.fromDate(end) });
+    await updateDoc(doc(db, 'users', modal.user.uid), { subscriptionEnd: Timestamp.fromDate(end), isPro: true, planExpiresAt: end.toISOString(), plan: 'mensuel' });
     showToast(`✅ Abonnement accordé à ${modal.user.name || modal.user.email} jusqu'au ${end.toLocaleDateString('fr-FR')}`);
     setModal(null);
     setSaving(false);
@@ -135,7 +135,7 @@ export default function SuperAdminUsersPage() {
   async function handleRevoke() {
     if (!modal) return;
     setSaving(true);
-    await updateDoc(doc(db, 'users', modal.user.uid), { subscriptionEnd: null });
+    await updateDoc(doc(db, 'users', modal.user.uid), { subscriptionEnd: null, isPro: false, planExpiresAt: null, plan: null });
     showToast(`Abonnement révoqué pour ${modal.user.name || modal.user.email}`);
     setModal(null);
     setSaving(false);
