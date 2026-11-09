@@ -12,7 +12,7 @@ const STRIPE_PRICES: Record<string, number> = {
   annuel: 3900,  // $39.00
 };
 
-const REFERRAL_DISCOUNT = 0.10; // 10%
+const REFERRAL_DISCOUNT = 0.05; // 5%
 
 export async function POST(req: NextRequest) {
   try {

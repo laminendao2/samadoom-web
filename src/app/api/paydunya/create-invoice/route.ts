@@ -18,7 +18,7 @@ const PLANS: Record<string, { name: string; amount: number; description: string 
   },
 };
 
-const REFERRAL_DISCOUNT = 0.10; // 10% de réduction pour l'acheteur
+const REFERRAL_DISCOUNT = 0.05; // 5% de réduction pour l'acheteur
 
 export async function POST(req: NextRequest) {
   try {

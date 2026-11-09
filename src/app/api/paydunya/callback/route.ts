@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 
-const REFERRAL_COMMISSION = 0.20; // 20% du montant payé pour le parrain
+const REFERRAL_COMMISSION = 0.10; // 10% du montant payé pour le parrain
 
 export async function POST(req: NextRequest) {
   try {
