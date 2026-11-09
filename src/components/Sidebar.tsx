@@ -11,12 +11,14 @@ const NAV_BY_ROLE: Record<string, { href: string; icon: string; label: string }[
     { href: '/cours',      icon: '🎒', label: 'Mes cours' },
     { href: '/coran',      icon: '📖', label: 'Coran' },
     { href: '/abonnement', icon: '⭐', label: 'Abonnement' },
+    { href: '/referral',   icon: '🤝', label: 'Parrainage' },
     { href: '/profile',    icon: '👤', label: 'Profil' },
   ],
   parent: [
     { href: '/dashboard',  icon: '🏠', label: 'Accueil' },
     { href: '/enfants',    icon: '👶', label: 'Mes enfants' },
     { href: '/abonnement', icon: '⭐', label: 'Abonnement' },
+    { href: '/referral',   icon: '🤝', label: 'Parrainage' },
     { href: '/profile',    icon: '👤', label: 'Profil' },
   ],
   professeur: [
@@ -29,6 +31,7 @@ const NAV_BY_ROLE: Record<string, { href: string; icon: string; label: string }[
     { href: '/dashboard',   icon: '🏠',  label: 'Accueil' },
     { href: '/admin/users', icon: '👥',  label: 'Membres' },
     { href: '/admin/ecole', icon: '🏫',  label: 'Mon école' },
+    { href: '/referral',    icon: '🤝',  label: 'Parrainage' },
     { href: '/profile',     icon: '👤',  label: 'Profil' },
   ],
   superadmin: [
