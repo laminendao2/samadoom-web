@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { collection, getDocs, query, orderBy, limit, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, limit, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -23,7 +23,7 @@ interface Payment {
   amount: number;
   currency: string;
   status: string;
-  createdAt: Timestamp;
+  createdAt: Timestamp | string;
 }
 
 function tsToDate(ts: unknown): Date {
@@ -54,20 +54,27 @@ export default function SuperAdminDashboard() {
       const [ecolesSnap, usersSnap, paymentsSnap] = await Promise.all([
         getDocs(collection(db, 'ecoles')),
         getDocs(collection(db, 'users')),
-        getDocs(query(collection(db, 'payments'), orderBy('createdAt', 'desc'), limit(10))),
+        getDocs(query(collection(db, 'payments'), limit(50))),
       ]);
       const now = new Date();
       const users = usersSnap.docs.map(d => d.data());
       setStats({
         totalEcoles: ecolesSnap.size,
         totalUsers: users.length,
-        totalPro: users.filter(u => tsToDate(u.subscriptionEnd) > now).length,
+        totalPro: users.filter(u => {
+          if (u.isPro === true) return true;
+          if (u.planExpiresAt && new Date(u.planExpiresAt) > now) return true;
+          if (tsToDate(u.subscriptionEnd) > now) return true;
+          return false;
+        }).length,
         totalProfs: users.filter(u => u.role === 'professeur').length,
         totalEleves: users.filter(u => u.role === 'eleve').length,
         totalAdmins: users.filter(u => u.role === 'admin').length,
         totalParents: users.filter(u => u.role === 'parent').length,
       });
-      setRecentPayments(paymentsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Payment));
+      const allPayments = paymentsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Payment);
+      allPayments.sort((a, b) => tsToDate(b.createdAt).getTime() - tsToDate(a.createdAt).getTime());
+      setRecentPayments(allPayments.slice(0, 10));
     } finally {
       setLoading(false);
     }
@@ -118,6 +125,7 @@ export default function SuperAdminDashboard() {
               { href: '/superadmin/users', icon: '👥', title: 'Gérer les utilisateurs', desc: 'Rechercher, abonner, révoquer', color: '#2563eb' },
               { href: '/superadmin/ecoles', icon: '🏫', title: 'Gérer les écoles', desc: 'Créer, modifier, voir les stats', color: '#16a34a' },
               { href: '/abonnement', icon: '💳', title: 'Abonnements', desc: 'Voir les plans PayDunya', color: '#d97706' },
+              { href: '/superadmin/referrals', icon: '🤝', title: 'Parrainage', desc: 'Commissions et filleuls', color: '#7c3aed' },
             ].map(item => (
               <Link key={item.href} href={item.href}
                 className="bg-white rounded-2xl p-6 border border-gray-100 hover:shadow-md transition-all flex items-start gap-4 no-underline">
