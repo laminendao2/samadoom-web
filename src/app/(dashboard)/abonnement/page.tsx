@@ -387,9 +387,15 @@ function AbonnementContent() {
                 ))}
               </ul>
 
+              {/* Boutons paiement — masqués si déjà abonné */}
+              {profile?.isPro ? (
+                <div style={{ padding: '12px 0', textAlign: 'center', color: '#166534', fontWeight: 700, fontSize: 14, background: '#f0fdf4', borderRadius: 12, marginBottom: 8 }}>
+                  ✅ Vous avez déjà un abonnement actif
+                </div>
+              ) : null}
               {/* Bouton Mobile Money */}
               <button
-                disabled={loading === plan.id}
+                disabled={loading === plan.id || !!profile?.isPro}
                 onClick={() => handlePaydunya(plan.id)}
                 style={{
                   width: '100%',
@@ -409,7 +415,7 @@ function AbonnementContent() {
 
               {/* Bouton Stripe */}
               <button
-                  disabled={loading === `stripe-${plan.id}`}
+                  disabled={loading === `stripe-${plan.id}` || !!profile?.isPro}
                   onClick={() => handleStripe(plan.id)}
                   style={{
                     width: '100%',
