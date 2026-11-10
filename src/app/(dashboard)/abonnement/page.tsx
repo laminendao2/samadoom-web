@@ -8,7 +8,7 @@ const BASE_PLANS = [
   {
     id: 'mensuel',
     name: 'Mensuel',
-    price: 300, // TEST — remettre à 3000
+    price: 3000,
     stripePriceUsd: 500, // centimes USD ($5)
     currency: 'FCFA',
     period: '/mois',
