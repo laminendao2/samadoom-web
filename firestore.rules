@@ -1,0 +1,325 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuth() { return request.auth != null; }
+    function isUser(uid) { return isAuth() && request.auth.uid == uid; }
+    function isAdmin() {
+      return isAuth() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    function isSuperAdmin() {
+      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return isAuth() && (
+        userData.role == 'superadmin' ||
+        ('roles' in userData && 'superadmin' in userData.roles)
+      );
+    }
+
+    match /users/{uid} {
+      allow read: if isAuth();
+      allow write: if isUser(uid) || isAdmin() || isSuperAdmin();
+      // SuperAdmin peut accorder un abonnement à n'importe quel utilisateur
+      allow update: if isSuperAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['subscriptionEnd']);
+      allow update: if isAuth() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['debtReputationSum', 'debtReputationCount']);
+      allow update: if isAuth() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rate', 'num_votes', 'num_comments']);
+      // Le prof peut mettre à jour uniquement coranProgress dans le doc d'un élève de son groupe
+      allow update: if isAuth() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['coranProgress']) &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'professeur' ||
+        'professeur' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles);
+      match /commentPhoRepon/{document} {
+        allow read, write, delete, create: if request.auth.uid == uid;
+      }
+      match /commentsReponses/{document} {
+        allow read, write, delete, create: if request.auth.uid == uid;
+      }
+      match /commentsPhotos/{document} {
+        allow read, write, delete, create: if request.auth.uid == uid;
+      }
+      match /photos/{photoId} {
+        allow read: if true;
+        allow create, update, delete: if isUser(uid);
+      }
+      match /products/{productId} {
+        allow read: if true;
+        allow create, update, delete: if isUser(uid);
+        match /comments/{commentId} {
+          allow read: if true;
+          allow create: if isAuth();
+          allow update, delete: if request.auth.uid == resource.data.authorUid || isAdmin();
+        }
+        match /ratings/{ratingId} {
+          allow read: if true;
+          allow write: if isAuth() && request.auth.uid == ratingId;
+        }
+      }
+      match /followers/{followerId} {
+        allow read: if true;
+        allow write: if isAuth() && request.auth.uid == followerId;
+      }
+      match /following/{followedId} {
+        allow read: if true;
+        allow write: if isUser(uid);
+      }
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isAuth();
+        allow update, delete: if request.auth.uid == resource.data.authorUid || isAdmin();
+      }
+      match /tontineSelfPaid/{docId} {
+        allow read, write, delete: if isAuth() && request.auth.uid == uid;
+      }
+      match /debts/{debtId} {
+        allow read, write, delete: if isAuth() && request.auth.uid == uid;
+      }
+    }
+
+    match /proRequests/{reqId} {
+      allow create: if isAuth();
+      allow read, update, delete: if isAdmin();
+    }
+    match /reports/{reportId} {
+      allow create: if isAuth();
+      allow read, update, delete: if isAdmin();
+    }
+    match /orders/{orderId} {
+      allow create: if isAuth();
+      allow read: if isAuth() && (
+        resource.data.proUid == request.auth.uid ||
+        resource.data.buyerUid == request.auth.uid ||
+        resource.data.livreurUid == request.auth.uid ||
+        isAdmin()
+      );
+      allow update: if isAuth() && (
+        resource.data.proUid == request.auth.uid ||
+        resource.data.livreurUid == request.auth.uid ||
+        resource.data.buyerUid == request.auth.uid ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+    match /deliveryInvites/{inviteId} {
+      allow create: if isAuth();
+      allow read, update: if isAuth() && resource.data.livreurUid == request.auth.uid;
+      allow delete: if isAdmin();
+    }
+    match /markers/{markerId} {
+      allow read: if true;
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        resource.data.uidUser == request.auth.uid || isAdmin() ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rate', 'num_votes'])
+      );
+      allow delete: if isAdmin();
+    }
+    match /Metiers/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /pub/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /banners/{bannerId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /campaigns/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /notifCampaigns/{doc} {
+      allow read, write: if isAdmin();
+    }
+    match /pushTokens/{doc} {
+      allow read: if isAdmin();
+      allow write: if isAuth();
+    }
+    match /MessageriesChats/{convId} {
+      allow read, write: if isAuth() &&
+        request.auth.uid in resource.data.userIds;
+      allow create: if isAuth();
+      match /ChatMessageries/{msgId} {
+        allow read, write: if isAuth() &&
+          request.auth.uid in get(/databases/$(database)/documents/MessageriesChats/$(convId)).data.userIds;
+      }
+    }
+    match /notification/{doc} {
+      allow read: if isAuth() && resource.data.recipient == request.auth.uid;
+      allow create: if isAuth();
+      allow update, delete: if isAuth() && resource.data.recipient == request.auth.uid;
+    }
+    match /Canada/{doc} { allow read: if true; allow write: if isAdmin(); }
+    match /Entete_Canada/{doc} { allow read: if true; allow write: if isAdmin(); }
+    match /Pays/{doc} { allow read: if true; allow write: if isAdmin(); }
+    match /Post_Canada_IV/{doc} { allow read: if true; allow write: if isAdmin(); }
+    match /Youtube/{doc} { allow read: if true; allow write: if isAdmin(); }
+    match /messages/{doc} {
+      allow read: if isAuth() && (
+        request.auth.uid == doc ||
+        resource.data.destUid == request.auth.uid ||
+        resource.data.senderUid == request.auth.uid
+      );
+      allow write: if isAuth();
+    }
+    match /ff_push_notifications/{doc} { allow read, write: if isAuth() && request.auth.uid == doc; }
+    match /ff_user_push_notifications/{doc} { allow read, write: if isAuth() && request.auth.uid == doc; }
+    match /debts/{debtId} {
+      allow read: if isAuth() && (
+        resource.data.creatorUid == request.auth.uid ||
+        resource.data.counterpartUid == request.auth.uid
+      );
+      allow create: if isAuth() && request.resource.data.creatorUid == request.auth.uid;
+      allow update: if isAuth() && (
+        resource.data.creatorUid == request.auth.uid ||
+        resource.data.counterpartUid == request.auth.uid
+      );
+      allow delete: if isAuth() && (
+        resource.data.creatorUid == request.auth.uid ||
+        (resource.data.counterpartUid == request.auth.uid && resource.data.deleteRequested == true)
+      );
+    }
+    match /tontines/{tontineId} {
+      allow read: if isAuth() && (
+        request.auth.uid in resource.data.userIds ||
+        request.auth.uid == resource.data.adminUid
+      );
+      allow create: if isAuth() && request.auth.uid == request.resource.data.adminUid;
+      allow update: if isAuth() && (
+        request.auth.uid == resource.data.adminUid ||
+        request.auth.uid in resource.data.userIds
+      );
+      allow delete: if isAuth() && request.auth.uid == resource.data.adminUid;
+      match /rounds/{roundId} {
+        allow read: if isAuth() && (
+          request.auth.uid in get(/databases/$(database)/documents/tontines/$(tontineId)).data.userIds ||
+          request.auth.uid == get(/databases/$(database)/documents/tontines/$(tontineId)).data.adminUid
+        );
+        allow write: if isAuth() && (
+          request.auth.uid == get(/databases/$(database)/documents/tontines/$(tontineId)).data.adminUid ||
+          request.auth.uid in get(/databases/$(database)/documents/tontines/$(tontineId)).data.userIds
+        );
+      }
+      match /ratings/{ratingId} {
+        allow read: if isAuth();
+        allow write: if isAuth() && request.auth.uid == ratingId;
+      }
+      match /joinRequests/{requestUid} {
+        allow read: if isAuth() && (
+          request.auth.uid == requestUid ||
+          request.auth.uid == get(/databases/$(database)/documents/tontines/$(tontineId)).data.adminUid
+        );
+        allow create: if isAuth() && request.auth.uid == requestUid;
+        allow update, delete: if isAuth() && (
+          request.auth.uid == requestUid ||
+          request.auth.uid == get(/databases/$(database)/documents/tontines/$(tontineId)).data.adminUid
+        );
+      }
+    }
+
+    // ── SamaDoom ──────────────────────────────────────────────────────────────
+    match /demandesAdmin/{docId} {
+      allow create: if isAuth() && request.resource.data.userUid == request.auth.uid;
+      allow read:   if isAuth();
+      allow update: if isAuth();
+    }
+    match /demandesEcole/{docId} {
+      allow read, write: if isAuth();
+    }
+    match /ecoles/{ecoleId} {
+      allow read, write: if isAuth();
+    }
+    match /classes/{docId} {
+      allow read, write: if isAuth();
+    }
+    match /emplois/{docId} {
+      allow read, write: if isAuth();
+    }
+    match /bulletins/{docId} {
+      allow read, write: if isAuth();
+    }
+    match /programmes/{docId} {
+      allow read, write: if isAuth();
+    }
+    match /fournitures/{docId} {
+      allow read, write: if isAuth();
+    }
+    match /absences/{docId} {
+      allow read, write: if isAuth();
+    }
+    match /paiements/{docId} {
+      allow read, write: if isAuth();
+    }
+    match /notes/{docId} {
+      allow read, write: if isAuth();
+    }
+    match /groupes/{docId} {
+      allow read: if isAuth();
+      allow create: if isAuth() && request.resource.data.profUid == request.auth.uid;
+      allow update, delete: if isAuth() && resource.data.profUid == request.auth.uid;
+    }
+    match /demandesLien/{docId} {
+      // Le parent crée sa demande
+      allow create: if isAuth() && request.resource.data.parentUid == request.auth.uid;
+      // Tout utilisateur auth peut lire (le code 6 chars est le secret)
+      allow read: if isAuth();
+      // N'importe quel élève peut accepter une demande en attente
+      allow update: if isAuth() && resource.data.status == 'pending';
+      allow delete: if false;
+    }
+    // ── Agenda du professeur ─────────────────────────────────────────────────
+    match /agendaProf/{docId} {
+      // Le prof peut créer ses propres créneaux
+      allow create: if isAuth() && request.resource.data.profUid == request.auth.uid;
+      // Le prof peut modifier/supprimer ses créneaux
+      allow update, delete: if isAuth() && resource.data.profUid == request.auth.uid;
+      // Tout utilisateur authentifié peut lire (les élèves voient l'agenda du prof)
+      allow read: if isAuth();
+    }
+    // ── Réservations de créneaux ──────────────────────────────────────────────
+    match /reservations/{reservId} {
+      // L'élève ou parent crée sa demande (demandeUid = son propre uid)
+      allow create: if isAuth() && request.resource.data.demandeUid == request.auth.uid;
+      // Le demandeur et le prof peuvent lire
+      allow read: if isAuth() && (
+        resource.data.demandeUid == request.auth.uid ||
+        resource.data.profUid    == request.auth.uid
+      );
+      // Seul le prof peut mettre à jour le statut (confirme / refuse)
+      allow update: if isAuth() && resource.data.profUid == request.auth.uid;
+      // Le demandeur peut supprimer sa propre demande en attente
+      allow delete: if isAuth() && resource.data.demandeUid == request.auth.uid
+                       && resource.data.status == 'pending';
+    }
+    // ── Cours vidéo ──────────────────────────────────────────────────────────
+    // La clé peut être profUid (ancien) ou creneauId (nouveau) — on vérifie profUid dans les données
+    match /videoRooms/{docId} {
+      allow read: if isAuth();
+      allow create, update: if isAuth() && request.resource.data.profUid == request.auth.uid;
+      allow delete: if isAuth() && resource.data.profUid == request.auth.uid;
+    }
+    // ── Parrainage & Paiements Stripe ────────────────────────────────────────
+    match /referralCodes/{code} {
+      // Lecture pour valider un code (côté client)
+      allow read: if isAuth();
+      // Écriture uniquement via Admin SDK (serveur)
+      allow write: if false;
+    }
+    match /referralEarnings/{docId} {
+      // L'utilisateur voit ses propres gains
+      allow read: if isAuth() && resource.data.referrerId == request.auth.uid;
+      // Écriture uniquement via Admin SDK (webhook)
+      allow write: if false;
+    }
+    match /payments/{docId} {
+      // Accès serveur uniquement via Admin SDK
+      allow read, write: if false;
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+  }
+}

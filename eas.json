@@ -1,0 +1,44 @@
+{
+  "cli": {
+    "version": ">= 21.0.1",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "credentialsSource": "local"
+      },
+      "channel": "production",
+      "ios": {
+        "image": "latest"
+      }
+    },
+    "preview-android": {
+      "distribution": "internal",
+      "autoIncrement": true,
+      "android": {
+        "credentialsSource": "local",
+        "buildType": "apk"
+      },
+      "channel": "preview",
+      "env": {
+        "EXPO_PUBLIC_ENV": "preview"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6739324174"
+      }
+    }
+  }
+}
