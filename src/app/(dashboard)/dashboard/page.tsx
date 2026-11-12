@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import ShareAppBanner from '@/components/ShareAppBanner';
 
@@ -70,12 +71,12 @@ export default function DashboardPage() {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {cards.map(card => (
-          <a key={card.href} href={card.href}
+          <Link key={card.href} href={card.href}
             className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md hover:border-gray-200 transition-all group">
             <div className="text-4xl mb-3">{card.icon}</div>
             <h3 className="font-bold text-gray-900 group-hover:text-green-700 transition-colors">{card.title}</h3>
             <p className="text-sm text-gray-500 mt-1">{card.desc}</p>
-          </a>
+          </Link>
         ))}
       </div>
       {!profile?.isPro && ['eleve', 'parent'].includes(role) && (
@@ -84,10 +85,10 @@ export default function DashboardPage() {
             <h3 className="font-black text-white text-lg">Passe à Pro ⭐</h3>
             <p className="text-white/90 text-sm mt-1">Accès illimité à tout le contenu islamique</p>
           </div>
-          <a href="/abonnement"
+          <Link href="/abonnement"
             className="bg-white text-orange-600 font-bold px-6 py-2.5 rounded-xl hover:bg-orange-50 transition-colors whitespace-nowrap">
             Voir les plans
-          </a>
+          </Link>
         </div>
       )}
       {['eleve', 'parent'].includes(role) && (
