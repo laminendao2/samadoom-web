@@ -14,6 +14,7 @@ interface UserRow {
   isPro?: boolean;
   subscriptionEnd?: Timestamp | string;
   planExpiresAt?: string;
+  planActivatedAt?: string;
   ecoleId?: string;
   createdAt?: Timestamp | string;
 }
@@ -60,6 +61,7 @@ export default function SuperAdminUsersPage() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [proFilter, setProFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('expiry-asc');
   const [modal, setModal] = useState<{ user: UserRow; mode: ModalMode } | null>(null);
   const [grantDate, setGrantDate] = useState('');
   const [editRoles, setEditRoles] = useState<string[]>([]);
@@ -92,8 +94,43 @@ export default function SuperAdminUsersPage() {
     if (roleFilter !== 'all') r = r.filter(u => u.role === roleFilter || (u.roles ?? []).includes(roleFilter));
     if (proFilter === 'pro') r = r.filter(u => isPro(u));
     if (proFilter === 'free') r = r.filter(u => !isPro(u));
+
+    // Sort
+    r = [...r].sort((a, b) => {
+      const getExpiry = (u: UserRow): number => {
+        const d = u.planExpiresAt ? new Date(u.planExpiresAt).getTime()
+          : u.subscriptionEnd ? (typeof u.subscriptionEnd === 'string' ? new Date(u.subscriptionEnd).getTime() : (u.subscriptionEnd as { toDate: () => Date }).toDate().getTime())
+          : 0;
+        return isNaN(d) ? 0 : d;
+      };
+      const getActivated = (u: UserRow): number => {
+        if (u.planActivatedAt) { const d = new Date(u.planActivatedAt).getTime(); return isNaN(d) ? 0 : d; }
+        if (u.createdAt) {
+          const d = typeof u.createdAt === 'string' ? new Date(u.createdAt).getTime() : (u.createdAt as { toDate: () => Date }).toDate().getTime();
+          return isNaN(d) ? 0 : d;
+        }
+        return 0;
+      };
+      if (sortBy === 'expiry-asc') {
+        // Pro avec expiry proche en premier, puis Free
+        const aP = isPro(a), bP = isPro(b);
+        if (aP && !bP) return -1;
+        if (!aP && bP) return 1;
+        return getExpiry(a) - getExpiry(b); // expiry proche en premier
+      }
+      if (sortBy === 'expiry-desc') {
+        const aP = isPro(a), bP = isPro(b);
+        if (aP && !bP) return -1;
+        if (!aP && bP) return 1;
+        return getExpiry(b) - getExpiry(a); // expiry lointaine en premier
+      }
+      if (sortBy === 'recent') return getActivated(b) - getActivated(a);
+      if (sortBy === 'name') return (a.name || a.email || '').localeCompare(b.name || b.email || '', 'fr');
+      return 0;
+    });
+
     setFiltered(r);
-  }, [search, roleFilter, proFilter, users]);
+  }, [search, roleFilter, proFilter, sortBy, users]);
 
   function openRolesModal(u: UserRow) {
     const currentRoles = u.roles?.length ? u.roles : [u.role || 'eleve'];
@@ -184,6 +221,13 @@ export default function SuperAdminUsersPage() {
           <option value="all">Tous (Pro + Free)</option>
           <option value="pro">Pro uniquement ⭐</option>
           <option value="free">Free uniquement</option>
+        </select>
+        <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+          className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none">
+          <option value="expiry-asc">⚠️ Expire bientôt</option>
+          <option value="expiry-desc">📅 Expire le plus tard</option>
+          <option value="recent">🕐 Récemment abonnés</option>
+          <option value="name">🔤 Nom A→Z</option>
         </select>
       </div>
 
