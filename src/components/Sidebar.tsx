@@ -130,7 +130,7 @@ export default function Sidebar() {
       {/* HAMBURGER — portrait mobile only */}
       <button
         onClick={() => setDrawerOpen(true)}
-        className={}
+        className={`md:hidden fixed top-3 left-3 z-50 w-10 h-10 bg-gradient-to-br ${grad} rounded-xl flex flex-col items-center justify-center gap-1 shadow-lg`}
         aria-label="Menu"
       >
         <span className="block w-5 h-0.5 bg-white rounded-full" />
@@ -142,7 +142,7 @@ export default function Sidebar() {
       {drawerOpen && (
         <div className="md:hidden fixed inset-0 z-[70] flex">
           <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
-          <aside className={}>
+          <aside className={`relative w-72 max-w-[85vw] bg-gradient-to-b ${grad} flex flex-col text-white h-full overflow-y-auto`}>
             <div className="p-6 border-b border-white/10 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-2xl">📖</div>
