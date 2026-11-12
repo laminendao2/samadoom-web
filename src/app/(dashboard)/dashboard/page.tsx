@@ -19,12 +19,14 @@ const CARDS_BY_ROLE: Record<string, { icon: string; title: string; desc: string;
   ],
   parent: [
     { icon: '👶', title: 'Mes enfants', desc: 'Suivre leurs progrès',      href: '/enfants' },
+    { icon: '📖', title: 'Coran',       desc: 'Lire le Coran',             href: '/coran' },
     { icon: '⭐', title: 'Abonnement',  desc: 'Gérer mon plan',            href: '/abonnement' },
     { icon: '👤', title: 'Profil',      desc: 'Modifier mes informations', href: '/profile' },
   ],
   professeur: [
     { icon: '🎓', title: 'Mes élèves',  desc: 'Gérer mes élèves',          href: '/eleves' },
     { icon: '📚', title: 'Cours',       desc: 'Gérer mes cours',           href: '/cours' },
+    { icon: '📖', title: 'Coran',       desc: 'Lire le Coran',             href: '/coran' },
     { icon: '👤', title: 'Profil',      desc: 'Modifier mes informations', href: '/profile' },
   ],
   admin: [
