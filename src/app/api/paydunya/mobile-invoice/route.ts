@@ -8,7 +8,7 @@ const PAYDUNYA_BASE_URL = process.env.PAYDUNYA_MODE === 'live'
   : 'https://app.paydunya.com/sandbox-api/v1';
 
 const PLANS: Record<string, { name: string; amount: number; description: string }> = {
-  mensuel: { name: 'Abonnement Mensuel', amount: 300, description: 'Accès complet Sama Doom — 1 mois' },
+  mensuel: { name: 'Abonnement Mensuel', amount: 3000, description: 'Accès complet Sama Doom — 1 mois' },
   annuel:  { name: 'Abonnement Annuel',  amount: 24000, description: 'Accès complet Sama Doom — 12 mois (2 mois offerts)' },
 };
 

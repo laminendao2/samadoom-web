@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
         plan: payment.plan,
         planActivatedAt: new Date().toISOString(),
         planExpiresAt: expiresAt.toISOString(),
+        subscriptionEnd: expiresAt.toISOString(),
         lastPaymentToken: token,
         lastPaymentProvider: 'paydunya',
       });

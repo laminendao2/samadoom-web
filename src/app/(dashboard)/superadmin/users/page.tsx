@@ -13,6 +13,7 @@ interface UserRow {
   roles?: string[];
   isPro?: boolean;
   subscriptionEnd?: Timestamp | string;
+  planExpiresAt?: string;
   ecoleId?: string;
   createdAt?: Timestamp | string;
 }
@@ -24,8 +25,14 @@ function tsToDate(ts: unknown): Date | null {
   return null;
 }
 function isPro(u: UserRow): boolean {
-  const d = tsToDate(u.subscriptionEnd);
-  return d ? d > new Date() : false;
+  const now = new Date();
+  const d1 = tsToDate(u.subscriptionEnd);
+  if (d1 && d1 > now) return true;
+  if (u.planExpiresAt) {
+    const d2 = new Date(u.planExpiresAt);
+    if (!isNaN(d2.getTime()) && d2 > now) return true;
+  }
+  return false;
 }
 
 const ALL_ROLES = ['eleve', 'parent', 'professeur', 'admin', 'superadmin'];
@@ -200,7 +207,8 @@ export default function SuperAdminUsersPage() {
               <tbody className="divide-y divide-gray-50">
                 {filtered.map(u => {
                   const pro = isPro(u);
-                  const endDate = tsToDate(u.subscriptionEnd);
+                  const rawEnd = u.subscriptionEnd || u.planExpiresAt;
+                  const endDate = tsToDate(rawEnd) ?? (u.planExpiresAt ? new Date(u.planExpiresAt) : null);
                   const allRoles = u.roles?.length ? u.roles : [u.role || 'eleve'];
                   return (
                     <tr key={u.uid} className="hover:bg-gray-50 transition-colors">

@@ -8,7 +8,7 @@ const BASE_PLANS = [
   {
     id: 'mensuel',
     name: 'Mensuel',
-    price: 300,
+    price: 3000,
     stripePriceUsd: 500, // centimes USD ($5)
     currency: 'FCFA',
     period: '/mois',
@@ -47,6 +47,7 @@ function AbonnementContent() {
   const [cancelConfirm, setCancelConfirm] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [cancelSuccess, setCancelSuccess] = useState(false);
+  const [showRenew, setShowRenew] = useState(false);
 
   // Détecter le code dans l'URL (?ref=CODE)
   useEffect(() => {
@@ -201,6 +202,23 @@ function AbonnementContent() {
           </div>
 
           {/* Bouton annulation */}
+          {!showRenew && (
+            <button
+              onClick={() => setShowRenew(true)}
+              style={{
+                padding: '8px 16px',
+                background: '#166534',
+                color: 'white',
+                border: 'none',
+                borderRadius: 10,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                marginRight: 10,
+              }}>
+              🔄 Prolonger mon abonnement
+            </button>
+          )}
           {!cancelConfirm ? (
             <button
               onClick={() => setCancelConfirm(true)}
@@ -259,6 +277,8 @@ function AbonnementContent() {
         </div>
       )}
 
+      {(!profile?.isPro || showRenew) && (
+      <div style={{ marginBottom: 0 }}>
       {/* Zone code de parrainage */}
       <div style={{
         background: referralInfo?.valid ? '#f0fdf4' : '#f9fafb',
@@ -387,15 +407,10 @@ function AbonnementContent() {
                 ))}
               </ul>
 
-              {/* Boutons paiement — masqués si déjà abonné */}
-              {profile?.isPro ? (
-                <div style={{ padding: '12px 0', textAlign: 'center', color: '#166534', fontWeight: 700, fontSize: 14, background: '#f0fdf4', borderRadius: 12, marginBottom: 8 }}>
-                  ✅ Vous avez déjà un abonnement actif
-                </div>
-              ) : null}
+
               {/* Bouton Mobile Money */}
               <button
-                disabled={loading === plan.id || !!profile?.isPro}
+                disabled={loading === plan.id}
                 onClick={() => handlePaydunya(plan.id)}
                 style={{
                   width: '100%',
@@ -415,7 +430,7 @@ function AbonnementContent() {
 
               {/* Bouton Stripe */}
               <button
-                  disabled={loading === `stripe-${plan.id}` || !!profile?.isPro}
+                  disabled={loading === `stripe-${plan.id}`}
                   onClick={() => handleStripe(plan.id)}
                   style={{
                     width: '100%',
@@ -435,6 +450,8 @@ function AbonnementContent() {
           );
         })}
       </div>
+      </div>
+      )}
 
       {/* Section PayDunya */}
       <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 20, padding: 24, marginBottom: 16 }}>
