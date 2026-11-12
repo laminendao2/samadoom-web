@@ -10,6 +10,8 @@ interface ReferralData {
   referralUrl: string;
 }
 
+type WithdrawStatus = 'idle' | 'loading' | 'success' | 'error';
+
 export default function ReferralPage() {
   const { user, profile } = useAuth();
   const [referral, setReferral] = useState<ReferralData | null>(null);
@@ -18,6 +20,12 @@ export default function ReferralPage() {
   const [copied, setCopied] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [error, setError] = useState('');
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [withdrawPhone, setWithdrawPhone] = useState('');
+  const [withdrawOperator, setWithdrawOperator] = useState('orange-money');
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawStatus, setWithdrawStatus] = useState<WithdrawStatus>('idle');
+  const [withdrawMsg, setWithdrawMsg] = useState('');
 
   const fetchReferral = useCallback(async () => {
     if (!user) return;
@@ -89,6 +97,41 @@ export default function ReferralPage() {
       setTimeout(() => setCopied(false), 2500);
     } catch {
       // fallback
+    }
+  };
+
+  const handleWithdraw = async () => {
+    if (!user) return;
+    const amount = parseInt(withdrawAmount, 10);
+    if (!amount || amount < 2000) {
+      setWithdrawMsg('Montant minimum : 2 000 FCFA');
+      setWithdrawStatus('error');
+      return;
+    }
+    setWithdrawStatus('loading');
+    setWithdrawMsg('');
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/referral/withdraw', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ amount, phone: withdrawPhone, operator: withdrawOperator }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setWithdrawStatus('success');
+        setWithdrawMsg(`✅ ${data.message} — vous recevrez un SMS de confirmation.`);
+        setWithdrawAmount('');
+        setWithdrawPhone('');
+        // Actualiser le solde
+        await fetchReferral();
+      } else {
+        setWithdrawStatus('error');
+        setWithdrawMsg(data.error ?? 'Erreur lors du retrait');
+      }
+    } catch {
+      setWithdrawStatus('error');
+      setWithdrawMsg('Erreur réseau. Réessayez.');
     }
   };
 
@@ -297,14 +340,147 @@ export default function ReferralPage() {
             ))}
           </div>
 
-          {/* Retrait (phase 2) */}
-          {referral.balance > 0 && (
-            <div style={{ marginTop: 20, background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 16, padding: 20, textAlign: 'center' }}>
-              <p style={{ fontSize: 14, color: '#6b7280', margin: '0 0 8px' }}>
-                💰 Vous avez <strong style={{ color: '#166534' }}>{referral.balance.toLocaleString('fr-FR')} FCFA</strong> disponibles
-              </p>
-              <p style={{ fontSize: 12, color: '#9ca3af', margin: 0 }}>
-                Le retrait vers Orange Money / Wave sera disponible prochainement.
+          {/* Retrait */}
+          {referral.balance >= 2000 && (
+            <div style={{ marginTop: 20 }}>
+              {!showWithdraw ? (
+                <button
+                  onClick={() => { setShowWithdraw(true); setWithdrawStatus('idle'); setWithdrawMsg(''); }}
+                  style={{
+                    width: '100%', padding: '14px 0',
+                    background: 'linear-gradient(135deg, #166534 0%, #15803d 100%)',
+                    color: 'white', border: 'none', borderRadius: 14,
+                    fontWeight: 700, fontSize: 16, cursor: 'pointer',
+                  }}>
+                  💸 Retirer {referral.balance.toLocaleString('fr-FR')} FCFA
+                </button>
+              ) : (
+                <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 20, padding: 24 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                    <h3 style={{ fontWeight: 800, fontSize: 16, color: '#111827', margin: 0 }}>💸 Retrait</h3>
+                    <button onClick={() => setShowWithdraw(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', fontSize: 20 }}>✕</button>
+                  </div>
+
+                  {/* Opérateur */}
+                  <div style={{ marginBottom: 16 }}>
+                    <p style={{ fontSize: 13, color: '#374151', fontWeight: 600, marginBottom: 8 }}>Opérateur</p>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      {[
+                        { id: 'orange-money', label: '🟠 Orange Money' },
+                        { id: 'wave',         label: '🔵 Wave' },
+                        { id: 'free-money',   label: '🟢 Free Money' },
+                      ].map(op => (
+                        <button key={op.id} onClick={() => setWithdrawOperator(op.id)}
+                          style={{
+                            flex: 1, padding: '10px 4px', borderRadius: 10,
+                            border: withdrawOperator === op.id ? '2px solid #166534' : '1px solid #d1d5db',
+                            background: withdrawOperator === op.id ? '#f0fdf4' : 'white',
+                            fontWeight: withdrawOperator === op.id ? 700 : 500,
+                            fontSize: 12, cursor: 'pointer', color: '#111827',
+                          }}>
+                          {op.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Numéro */}
+                  <div style={{ marginBottom: 16 }}>
+                    <p style={{ fontSize: 13, color: '#374151', fontWeight: 600, marginBottom: 8 }}>Numéro de téléphone</p>
+                    <input
+                      type="tel"
+                      placeholder="77 123 45 67"
+                      value={withdrawPhone}
+                      onChange={e => setWithdrawPhone(e.target.value)}
+                      style={{
+                        width: '100%', padding: '12px 14px', borderRadius: 10,
+                        border: '1px solid #d1d5db', fontSize: 15, outline: 'none',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                    <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>Sans indicatif pays (+221)</p>
+                  </div>
+
+                  {/* Montant */}
+                  <div style={{ marginBottom: 20 }}>
+                    <p style={{ fontSize: 13, color: '#374151', fontWeight: 600, marginBottom: 8 }}>
+                      Montant (min 2 000 FCFA, max {referral.balance.toLocaleString('fr-FR')} FCFA)
+                    </p>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                      {[2000, 5000, 10000].filter(v => v <= referral.balance).map(v => (
+                        <button key={v} onClick={() => setWithdrawAmount(String(v))}
+                          style={{
+                            flex: 1, padding: '8px 0', borderRadius: 8,
+                            border: withdrawAmount === String(v) ? '2px solid #166534' : '1px solid #d1d5db',
+                            background: withdrawAmount === String(v) ? '#f0fdf4' : 'white',
+                            fontWeight: 600, fontSize: 13, cursor: 'pointer',
+                          }}>
+                          {v.toLocaleString('fr-FR')}
+                        </button>
+                      ))}
+                      <button onClick={() => setWithdrawAmount(String(referral.balance))}
+                        style={{
+                          flex: 1, padding: '8px 0', borderRadius: 8,
+                          border: withdrawAmount === String(referral.balance) ? '2px solid #166534' : '1px solid #d1d5db',
+                          background: withdrawAmount === String(referral.balance) ? '#f0fdf4' : 'white',
+                          fontWeight: 600, fontSize: 12, cursor: 'pointer',
+                        }}>
+                        Tout
+                      </button>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Montant en FCFA"
+                      value={withdrawAmount}
+                      onChange={e => setWithdrawAmount(e.target.value)}
+                      min={2000}
+                      max={referral.balance}
+                      style={{
+                        width: '100%', padding: '12px 14px', borderRadius: 10,
+                        border: '1px solid #d1d5db', fontSize: 15, outline: 'none',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                  </div>
+
+                  {/* Message statut */}
+                  {withdrawMsg && (
+                    <div style={{
+                      padding: '10px 14px', borderRadius: 10, marginBottom: 16,
+                      background: withdrawStatus === 'success' ? '#f0fdf4' : '#fef2f2',
+                      border: `1px solid ${withdrawStatus === 'success' ? '#bbf7d0' : '#fecaca'}`,
+                      color: withdrawStatus === 'success' ? '#166534' : '#dc2626',
+                      fontSize: 13,
+                    }}>
+                      {withdrawMsg}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleWithdraw}
+                    disabled={withdrawStatus === 'loading' || withdrawStatus === 'success'}
+                    style={{
+                      width: '100%', padding: '14px 0',
+                      background: withdrawStatus === 'success' ? '#15803d' : 'linear-gradient(135deg, #166534 0%, #15803d 100%)',
+                      color: 'white', border: 'none', borderRadius: 12,
+                      fontWeight: 700, fontSize: 15,
+                      cursor: withdrawStatus === 'loading' || withdrawStatus === 'success' ? 'not-allowed' : 'pointer',
+                      opacity: withdrawStatus === 'loading' ? 0.7 : 1,
+                    }}>
+                    {withdrawStatus === 'loading' ? 'Traitement en cours…' :
+                     withdrawStatus === 'success' ? '✅ Retrait envoyé' :
+                     'Confirmer le retrait'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {referral.balance > 0 && referral.balance < 2000 && (
+            <div style={{ marginTop: 16, padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12 }}>
+              <p style={{ fontSize: 13, color: '#92400e', margin: 0 }}>
+                💰 Solde : <strong>{referral.balance.toLocaleString('fr-FR')} FCFA</strong> —
+                minimum 2 000 FCFA requis pour retirer.
               </p>
             </div>
           )}
