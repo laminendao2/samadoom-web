@@ -49,15 +49,17 @@ function AbonnementContent() {
   const [cancelSuccess, setCancelSuccess] = useState(false);
   const [showRenew, setShowRenew] = useState(false);
 
-  // Détecter le code dans l'URL (?ref=CODE)
+  // Pré-remplir avec le code sauvegardé sur le profil, ou depuis l'URL
   useEffect(() => {
     const refParam = searchParams.get('ref');
-    if (refParam) {
-      setReferralCode(refParam.toUpperCase());
-      validateCode(refParam.toUpperCase());
+    const savedCode = (profile as { savedReferralCode?: string } | null)?.savedReferralCode;
+    const code = refParam ? refParam.toUpperCase() : savedCode ? savedCode.toUpperCase() : null;
+    if (code) {
+      setReferralCode(code);
+      validateCode(code);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, profile?.isPro]);
 
   const validateCode = async (code: string) => {
     if (!code.trim()) {
