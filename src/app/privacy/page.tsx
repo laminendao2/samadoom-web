@@ -54,7 +54,7 @@ export default function PrivacyPage() {
         <li>Demander la suppression de vos données</li>
         <li>Vous opposer au traitement de vos données</li>
       </ul>
-      <p>Pour exercer ces droits, contactez-nous à : <strong>support@samadoom.com</strong></p>
+      <p>Pour exercer ces droits, contactez-nous à : <strong>support@freejobla.com</strong></p>
 
       <h2>7. Sécurité</h2>
       <p>
@@ -65,7 +65,7 @@ export default function PrivacyPage() {
       <h2>8. Contact</h2>
       <p>
         Pour toute question relative à cette politique de confidentialité :<br />
-        <strong>Email :</strong> support@samadoom.com<br />
+        <strong>Email :</strong> support@freejobla.com<br />
         <strong>Site :</strong> https://samadoom.com
       </p>
     </main>
