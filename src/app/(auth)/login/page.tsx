@@ -127,7 +127,7 @@ function LoginForm() {
 
         <p style={{ textAlign: 'center', fontSize: 12, color: '#9ca3af', marginTop: 20 }}>
           En continuant, vous acceptez nos{' '}
-          <span style={{ color: cfg.accentColor, fontWeight: 500, cursor: 'pointer' }}>conditions d&apos;utilisation</span>
+          <Link href="/terms" style={{ color: cfg.accentColor, fontWeight: 500, textDecoration: 'underline' }}>conditions d&apos;utilisation</Link>
         </p>
       </div>
     </div>
