@@ -3,6 +3,8 @@ import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
+import { sendPasswordResetEmail } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 
 const ROLE_CONFIG: Record<string, {
   label: string; subtitle: string; emoji: string;
@@ -27,6 +29,7 @@ function LoginForm() {
   const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetMsg, setResetMsg] = useState('');
   const { signIn, signInWithGoogle } = useAuth();
   const router = useRouter();
 
@@ -40,6 +43,14 @@ function LoginForm() {
     } catch {
       setError('Email ou mot de passe incorrect');
     } finally { setLoading(false); }
+  };
+
+  const handleReset = async () => {
+    if (!email) { setResetMsg('Entrez votre email ci-dessus puis réessayez.'); return; }
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetMsg('Email envoyé ! Vérifiez votre boîte mail.');
+    } catch { setResetMsg('Erreur. Vérifiez l'email saisi.'); }
   };
 
   const handleGoogle = async () => {
@@ -105,9 +116,10 @@ function LoginForm() {
           </button>
         </form>
 
-        <p style={{ textAlign: 'center', fontSize: 13, fontWeight: 600, color: cfg.accentColor, marginTop: 16, cursor: 'pointer' }}>
+        <button onClick={handleReset} style={{ background: 'none', border: 'none', width: '100%', textAlign: 'center', fontSize: 13, fontWeight: 600, color: cfg.accentColor, marginTop: 16, cursor: 'pointer', padding: 0 }}>
           Mot de passe oublié ?
-        </p>
+        </button>
+        {resetMsg && <p style={{ textAlign: 'center', fontSize: 12, color: resetMsg.startsWith('Email envoyé') ? '#16a34a' : '#dc2626', marginTop: 6 }}>{resetMsg}</p>}
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '20px 0' }}>
           <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
