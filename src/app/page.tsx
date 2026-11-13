@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
+import Image from 'next/image';
 
 const ROLES = [
   { key: 'eleve', label: 'Élève', subtitle: 'Notes, devoirs & emploi du temps', emoji: '🎓', color: '#3B82F6', bg: '#EFF6FF', border: '#BFDBFE' },
@@ -44,7 +45,7 @@ export default function Home() {
       {/* NAV */}
       <nav style={{ background: '#fff', borderBottom: '1px solid #e5e7eb', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 64, position: 'sticky', top: 0, zIndex: 50, boxShadow: '0 1px 4px rgba(0,0,0,.06)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 40, height: 40, background: 'linear-gradient(135deg,#0D3320,#1a5c38)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📖</div>
+          <Image src="/logo.png" alt="Sama Doom" width={40} height={40} style={{ borderRadius: 10, objectFit: 'contain' }} />
           <div>
             <div style={{ fontWeight: 900, fontSize: 16, color: '#0D3320', letterSpacing: 1 }}>SAMA DOOM</div>
             <div style={{ fontSize: 11, color: '#6B7280', marginTop: -2 }}>La réussite scolaire, ensemble</div>
