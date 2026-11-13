@@ -87,7 +87,7 @@ export default function TermsPage() {
       <h2>11. Contact</h2>
       <p>
         Pour toute question relative aux présentes conditions :<br />
-        <strong>Email :</strong> support@samadoom.com<br />
+        <strong>Email :</strong> support@freejobla.com<br />
         <strong>Site :</strong> https://samadoom.com
       </p>
     </main>
