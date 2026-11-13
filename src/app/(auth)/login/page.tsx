@@ -50,7 +50,7 @@ function LoginForm() {
     try {
       await sendPasswordResetEmail(auth, email);
       setResetMsg('Email envoyé ! Vérifiez votre boîte mail.');
-    } catch { setResetMsg('Erreur. Vérifiez l'email saisi.'); }
+    } catch { setResetMsg("Erreur. Vérifiez l'email saisi."); }
   };
 
   const handleGoogle = async () => {
