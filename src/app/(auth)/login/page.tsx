@@ -3,8 +3,6 @@ import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
-import { sendPasswordResetEmail } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
 
 const ROLE_CONFIG: Record<string, {
   label: string; subtitle: string; emoji: string;
@@ -48,7 +46,12 @@ function LoginForm() {
   const handleReset = async () => {
     if (!email) { setResetMsg('Entrez votre email ci-dessus puis réessayez.'); return; }
     try {
-      await sendPasswordResetEmail(auth, email);
+      const res = await fetch('/api/auth/send-reset-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (!res.ok) throw new Error();
       setResetMsg('Email envoyé ! Vérifiez votre boîte mail.');
     } catch { setResetMsg("Erreur. Vérifiez l'email saisi."); }
   };
