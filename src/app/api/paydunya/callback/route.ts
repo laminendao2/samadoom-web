@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
         expiresAt.setFullYear(expiresAt.getFullYear() + 1);
       }
 
-      await adminDb.collection('users').doc(payment.userId).update({
+      const userUpdate: Record<string, unknown> = {
         isPro: true,
         plan: payment.plan,
         planActivatedAt: new Date().toISOString(),
@@ -49,7 +49,12 @@ export async function POST(req: NextRequest) {
         subscriptionEnd: Timestamp.fromDate(expiresAt),
         lastPaymentToken: token,
         lastPaymentProvider: 'paydunya',
-      });
+      };
+      // Sauvegarder le code parrain sur le profil (persistant jusqu'au changement)
+      if (payment.referralCode) {
+        userUpdate.savedReferralCode = payment.referralCode;
+      }
+      await adminDb.collection('users').doc(payment.userId).update(userUpdate);
 
       console.log(`✅ Plan ${payment.plan} activé pour ${payment.userId}`);
 
