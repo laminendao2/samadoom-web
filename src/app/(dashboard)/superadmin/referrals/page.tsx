@@ -56,8 +56,9 @@ export default function SuperAdminReferralsPage() {
     if (!user) return;
     (async () => {
       try {
+        const idToken = await user.getIdToken();
         const res = await fetch('/api/superadmin/referrals', {
-          headers: { 'x-user-id': user.uid },
+          headers: { Authorization: `Bearer ${idToken}` },
         });
         const data = await res.json();
         if (!res.ok) { setError(data.error || 'Erreur'); return; }

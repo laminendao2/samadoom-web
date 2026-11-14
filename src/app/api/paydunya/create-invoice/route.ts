@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 import { PAYDUNYA_PLANS, isPlanId } from '@/lib/plans';
+import { verifyRequestUser } from '@/lib/server-auth';
 
 const PAYDUNYA_BASE_URL = process.env.PAYDUNYA_MODE === 'live'
   ? 'https://app.paydunya.com/api/v1'
@@ -10,13 +11,18 @@ const REFERRAL_DISCOUNT = 0.05; // 5% de réduction pour l'acheteur
 
 export async function POST(req: NextRequest) {
   try {
-    const { plan, userId, userEmail, referralCode } = await req.json();
+    // L'identité vient du token Firebase, jamais du corps de la requête
+    const authUser = await verifyRequestUser(req);
+    if (!authUser) {
+      return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+    }
+    const userId = authUser.uid;
+    const userEmail = authUser.email || '';
+
+    const { plan, referralCode } = await req.json();
 
     if (!isPlanId(plan)) {
       return NextResponse.json({ error: 'Plan invalide' }, { status: 400 });
-    }
-    if (!userId || !userEmail) {
-      return NextResponse.json({ error: 'Utilisateur requis' }, { status: 401 });
     }
 
     const planInfo = PAYDUNYA_PLANS[plan];
@@ -27,7 +33,7 @@ export async function POST(req: NextRequest) {
     let validatedReferralCode: string | null = null;
     let referrerId: string | null = null;
 
-    if (referralCode) {
+    if (typeof referralCode === 'string' && /^[A-Za-z0-9]{3,20}$/.test(referralCode.trim())) {
       const code = referralCode.toUpperCase().trim();
       const refSnap = await adminDb.collection('referralCodes').doc(code).get();
 

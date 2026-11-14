@@ -153,13 +153,12 @@ function AbonnementContent() {
     setError('');
     setLoading(planId);
     try {
+      const idToken = await user.getIdToken();
       const res = await fetch('/api/paydunya/create-invoice', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
           plan: planId,
-          userId: user.uid,
-          userEmail: user.email,
           referralCode: referralInfo?.valid ? referralInfo.code : null,
         }),
       });
@@ -181,13 +180,12 @@ function AbonnementContent() {
     setError('');
     setLoading(`stripe-${planId}`);
     try {
+      const idToken = await user.getIdToken();
       const res = await fetch('/api/stripe/create-checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
           plan: planId,
-          userId: user.uid,
-          userEmail: user.email,
           referralCode: referralInfo?.valid ? referralInfo.code : null,
         }),
       });
