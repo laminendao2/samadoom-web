@@ -4,29 +4,57 @@ import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { getAuth } from 'firebase/auth';
 
-const BASE_PLANS = [
+interface Plan {
+  id: string;
+  name: string;
+  price: number; // prix facturé via Mobile Money (FCFA)
+  regularPrice?: number; // prix normal, affiché barré
+  launch?: boolean; // prix de lancement
+  stripePriceLabel?: string; // absent = pas de paiement par carte pour ce plan
+  currency: string;
+  period: string;
+  badge?: string;
+  features: string[];
+  highlight: boolean;
+}
+
+// Les montants FCFA doivent rester alignés avec src/lib/plans.ts (facturation serveur)
+const BASE_PLANS: Plan[] = [
+  {
+    id: 'semaine',
+    name: 'Hebdomadaire',
+    price: 500,
+    launch: true,
+    currency: 'FCFA',
+    period: '/semaine',
+    features: ['Accès à tout le Coran', 'Cours illimités', 'Suivi des progrès', 'Sans engagement'],
+    highlight: false,
+  },
   {
     id: 'mensuel',
     name: 'Mensuel',
-    price: 3000,
-    stripePriceUsd: 500, // centimes USD ($5)
+    price: 1500,
+    regularPrice: 3000,
+    launch: true,
+    stripePriceLabel: '$5',
     currency: 'FCFA',
     period: '/mois',
     features: ['Accès à tout le Coran', 'Cours illimités', 'Suivi des progrès', 'Support prioritaire'],
-    highlight: false,
+    highlight: true,
   },
   {
     id: 'annuel',
     name: 'Annuel',
     price: 24000,
-    stripePriceUsd: 3900, // centimes USD ($39)
+    stripePriceLabel: '$39',
     currency: 'FCFA',
     period: '/an',
-    badge: 'Économise 33%',
-    features: ['Tout du plan Mensuel', '2 mois offerts', 'Accès famille (2 enfants)', 'Contenu exclusif'],
-    highlight: true,
+    features: ['Tout du plan Mensuel', 'Accès famille (2 enfants)', 'Contenu exclusif'],
+    highlight: false,
   },
 ];
+
+const PLAN_LABELS: Record<string, string> = { semaine: 'Hebdomadaire', mensuel: 'Mensuel', annuel: 'Annuel' };
 
 interface ReferralInfo {
   valid: boolean;
@@ -195,7 +223,7 @@ function AbonnementContent() {
             <div>
               <p style={{ fontWeight: 700, color: '#166534', margin: 0 }}>Vous avez le Plan Pro !</p>
               <p style={{ fontSize: 13, color: '#15803d', margin: '2px 0 0' }}>
-                Plan : <strong>{profile.plan === 'mensuel' ? 'Mensuel' : profile.plan === 'annuel' ? 'Annuel' : profile.plan}</strong>
+                Plan : <strong>{(profile.plan && PLAN_LABELS[profile.plan]) || profile.plan}</strong>
                 {profile.planExpiresAt && (
                   <> · Expire le <strong>{new Date(profile.planExpiresAt).toLocaleDateString('fr-FR')}</strong></>
                 )}
@@ -354,10 +382,17 @@ function AbonnementContent() {
       )}
 
       {/* Plans */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20, marginBottom: 32 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 20, marginBottom: 32 }}>
         {BASE_PLANS.map(plan => {
           const discountedPrice = getDiscountedPrice(plan.price);
           const hasDiscount = referralInfo?.valid && discountedPrice < plan.price;
+          const struckPrice = plan.regularPrice && plan.regularPrice > discountedPrice
+            ? plan.regularPrice
+            : hasDiscount ? plan.price : null;
+          const topBadge = hasDiscount
+            ? `🎁 -${referralInfo!.discountPercent}% parrainage`
+            : plan.launch ? '🚀 Prix de lancement' : plan.badge;
+          const accent = hasDiscount || plan.launch;
 
           return (
             <div key={plan.id} style={{
@@ -368,38 +403,34 @@ function AbonnementContent() {
               border: plan.highlight ? '2px solid #166534' : '2px solid #e5e7eb',
               boxShadow: plan.highlight ? '0 8px 24px rgba(22,101,52,0.12)' : '0 2px 8px rgba(0,0,0,0.05)',
             }}>
-              {plan.badge && !hasDiscount && (
+              {topBadge && (
                 <div style={{
                   position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)',
-                  background: '#166534', color: 'white', fontSize: 11, fontWeight: 700,
+                  background: accent ? '#dc2626' : '#166534', color: 'white', fontSize: 11, fontWeight: 700,
                   padding: '4px 16px', borderRadius: 999, whiteSpace: 'nowrap',
                 }}>
-                  {plan.badge}
-                </div>
-              )}
-              {hasDiscount && (
-                <div style={{
-                  position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)',
-                  background: '#dc2626', color: 'white', fontSize: 11, fontWeight: 700,
-                  padding: '4px 16px', borderRadius: 999, whiteSpace: 'nowrap',
-                }}>
-                  🎁 -{referralInfo!.discountPercent}% parrainage
+                  {topBadge}
                 </div>
               )}
 
               <h3 style={{ fontSize: 20, fontWeight: 900, color: '#111827', marginBottom: 12 }}>{plan.name}</h3>
 
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
-                {hasDiscount && (
+                {struckPrice && (
                   <span style={{ fontSize: 20, color: '#9ca3af', textDecoration: 'line-through' }}>
-                    {plan.price.toLocaleString('fr-FR')}
+                    {struckPrice.toLocaleString('fr-FR')}
                   </span>
                 )}
-                <span style={{ fontSize: 36, fontWeight: 900, color: hasDiscount ? '#dc2626' : '#111827' }}>
+                <span style={{ fontSize: 36, fontWeight: 900, color: accent ? '#dc2626' : '#111827' }}>
                   {discountedPrice.toLocaleString('fr-FR')}
                 </span>
                 <span style={{ color: '#6b7280', fontSize: 14 }}>{plan.currency}{plan.period}</span>
               </div>
+              {plan.launch && (
+                <p style={{ fontSize: 12, color: '#b91c1c', fontWeight: 600, margin: '4px 0 0' }}>
+                  Prix de lancement — paiement Mobile Money uniquement
+                </p>
+              )}
 
               <ul style={{ listStyle: 'none', padding: 0, margin: '16px 0 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {plan.features.map(f => (
@@ -430,7 +461,8 @@ function AbonnementContent() {
                 {loading === plan.id ? 'Redirection…' : '🌍 Mobile Money (Orange, Wave…)'}
               </button>
 
-              {/* Bouton Stripe */}
+              {/* Bouton Stripe (prix en USD, hors prix de lancement) */}
+              {plan.stripePriceLabel && (
               <button
                   disabled={loading === `stripe-${plan.id}`}
                   onClick={() => handleStripe(plan.id)}
@@ -446,8 +478,9 @@ function AbonnementContent() {
                     cursor: loading === `stripe-${plan.id}` ? 'not-allowed' : 'pointer',
                     opacity: loading === `stripe-${plan.id}` ? 0.7 : 1,
                   }}>
-                  {loading === `stripe-${plan.id}` ? 'Redirection…' : '💳 Carte bancaire internationale'}
+                  {loading === `stripe-${plan.id}` ? 'Redirection…' : `💳 Carte bancaire internationale (${plan.stripePriceLabel})`}
                 </button>
+              )}
             </div>
           );
         })}

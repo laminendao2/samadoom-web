@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { computePlanExpiry } from '@/lib/plans';
 
 const REFERRAL_COMMISSION = 0.10; // 10% du montant payé pour le parrain
 
@@ -34,12 +35,7 @@ export async function POST(req: NextRequest) {
       });
 
       // Activer l'abonnement de l'utilisateur
-      const expiresAt = new Date();
-      if (payment.plan === 'mensuel') {
-        expiresAt.setMonth(expiresAt.getMonth() + 1);
-      } else if (payment.plan === 'annuel') {
-        expiresAt.setFullYear(expiresAt.getFullYear() + 1);
-      }
+      const expiresAt = computePlanExpiry(payment.plan);
 
       const userUpdate: Record<string, unknown> = {
         isPro: true,
