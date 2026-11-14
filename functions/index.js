@@ -162,6 +162,61 @@ exports.paydunyaMobileInvoice = onRequest({ region: 'us-east1', cors: true }, as
   } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
 });
 
+// ─── Activation sécurisée ────────────────────────────────────
+// Le paiement est confirmé auprès de PayDunya, doit appartenir à l'utilisateur
+// (custom_data.uid), être au bon montant, et n'est appliqué qu'une seule fois
+// (verrou transactionnel dans payments/{token}).
+function toDate(v) {
+  if (!v) return null;
+  if (typeof v.toDate === 'function') return v.toDate();
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+async function activateInvoice(token, expectedUid) {
+  if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{6,80}$/.test(token)) return 'invalid';
+  const r = await fetch(PD_BASE + '/checkout-invoice/confirm/' + token, { headers: PD_HEADERS() });
+  const d = await r.json();
+  const status = String((d && d.status) || 'pending').toLowerCase();
+  if (status !== 'completed') return status === 'failed' || status === 'cancelled' ? 'failed' : 'pending';
+
+  const custom = d.custom_data || {};
+  // Facture créée par le site web (custom_data.userId) : gérée par samadoom.com
+  const uid = custom.uid || null;
+  const plan = Object.prototype.hasOwnProperty.call(PLANS, custom.plan) ? custom.plan : null;
+  if (!uid || !plan) return 'invalid';
+  if (expectedUid && uid !== expectedUid) return 'forbidden';
+  if (String(d.mode || 'live').toLowerCase() !== 'live') return 'invalid';
+  const paid = Math.round(Number(d.invoice && d.invoice.total_amount));
+  if (!Number.isFinite(paid) || paid < PLANS[plan].amount) return 'invalid';
+
+  const db = getFirestore();
+  const payRef = db.doc('payments/' + token);
+  const userRef = db.doc('users/' + uid);
+  await db.runTransaction(async (tx) => {
+    const paySnap = await tx.get(payRef);
+    if (paySnap.exists && paySnap.data().status === 'completed') return; // déjà appliqué
+    const userSnap = await tx.get(userRef);
+    const u = userSnap.data() || {};
+    const now = new Date();
+    const ends = [toDate(u.subscriptionEnd), toDate(u.planExpiresAt)].filter(Boolean);
+    const currentEnd = ends.length ? new Date(Math.max.apply(null, ends.map((x) => x.getTime()))) : null;
+    const base = currentEnd && currentEnd > now ? currentEnd : now; // renouvellement anticipé : on cumule
+    const end = new Date(base.getTime() + PLANS[plan].days * 86400000);
+    tx.set(payRef, {
+      token: token, userId: uid, plan: plan, amount: paid, currency: 'XOF',
+      status: 'completed', provider: 'paydunya', source: 'mobile',
+      completedAt: now.toISOString(),
+    }, { merge: true });
+    tx.set(userRef, {
+      subscriptionEnd: end, plan: plan, isPro: true,
+      planActivatedAt: now.toISOString(), planExpiresAt: end.toISOString(),
+      lastPaymentToken: token, lastPaymentProvider: 'paydunya',
+    }, { merge: true });
+  });
+  return 'completed';
+}
+
 exports.paydunyaPaymentStatus = onRequest({ region: 'us-east1', cors: true }, async (req, res) => {
   if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
   const idToken = (req.headers.authorization || '').replace('Bearer ', '');
@@ -171,31 +226,22 @@ exports.paydunyaPaymentStatus = onRequest({ region: 'us-east1', cors: true }, as
   const token = req.query.token;
   if (!token) { res.status(400).json({ error: 'Token manquant' }); return; }
   try {
-    const r = await fetch(PD_BASE + '/checkout-invoice/confirm/' + token, { headers: PD_HEADERS() });
-    const d = await r.json();
-    if (d.response_code === '00' && d.status === 'completed') {
-      const plan = (d.custom_data && d.custom_data.plan) ? d.custom_data.plan : 'mensuel';
-      const end  = new Date(Date.now() + (PLANS[plan] ? PLANS[plan].days : 30) * 86400000);
-      await getFirestore().doc('users/' + uid).update({ subscriptionEnd: end, plan: plan });
-      res.json({ status: 'completed' });
-    } else {
-      res.json({ status: d.status === 'failed' ? 'failed' : 'pending' });
-    }
+    // Un utilisateur ne peut faire valoir que SA facture, et une seule fois
+    const result = await activateInvoice(String(token), uid);
+    if (result === 'forbidden') { res.status(403).json({ error: 'Acces refuse' }); return; }
+    if (result === 'invalid')   { res.status(400).json({ error: 'Paiement invalide' }); return; }
+    res.json({ status: result });
   } catch (e) { res.status(500).json({ error: 'Erreur serveur' }); }
 });
 
 exports.paydunyaCallback = onRequest({ region: 'us-east1' }, async (req, res) => {
-  const token = req.body && req.body.data ? req.body.data.invoice_token : null;
+  // L'IPN PayDunya arrive en formulaire : data[invoice][token]
+  let data = req.body && req.body.data ? req.body.data : null;
+  if (typeof data === 'string') { try { data = JSON.parse(data); } catch (_) { data = null; } }
+  const token = data ? ((data.invoice && data.invoice.token) || data.invoice_token || null) : null;
   if (!token) { res.status(400).send('No token'); return; }
   try {
-    const r = await fetch(PD_BASE + '/checkout-invoice/confirm/' + token, { headers: PD_HEADERS() });
-    const d = await r.json();
-    if (d.response_code === '00' && d.status === 'completed') {
-      const uid  = d.custom_data && d.custom_data.uid  ? d.custom_data.uid  : null;
-      const plan = d.custom_data && d.custom_data.plan ? d.custom_data.plan : 'mensuel';
-      const end  = new Date(Date.now() + (PLANS[plan] ? PLANS[plan].days : 30) * 86400000);
-      if (uid) await getFirestore().doc('users/' + uid).update({ subscriptionEnd: end, plan: plan });
-    }
+    await activateInvoice(String(token), null);
     res.status(200).send('OK');
   } catch (_) { res.status(500).send('Error'); }
 });
