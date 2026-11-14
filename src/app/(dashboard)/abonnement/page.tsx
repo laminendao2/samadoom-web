@@ -203,7 +203,7 @@ function AbonnementContent() {
   };
 
   return (
-    <div style={{ padding: '32px 24px', maxWidth: 720, margin: '0 auto' }}>
+    <div style={{ padding: '32px 24px', maxWidth: 860, margin: '0 auto' }}>
       <h1 style={{ fontSize: 26, fontWeight: 900, color: '#111827', marginBottom: 8 }}>Abonnement Pro</h1>
       <p style={{ color: '#6b7280', marginBottom: 32 }}>Débloquez tout le contenu islamique pour vous et votre famille.</p>
 
@@ -413,7 +413,7 @@ function AbonnementContent() {
 
               <h3 style={{ fontSize: 20, fontWeight: 900, color: '#111827', marginBottom: 12 }}>{plan.name}</h3>
 
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 6, marginBottom: 4 }}>
                 {struckPrice && (
                   <span style={{ fontSize: 20, color: '#9ca3af', textDecoration: 'line-through' }}>
                     {struckPrice.toLocaleString('fr-FR')}
@@ -422,7 +422,7 @@ function AbonnementContent() {
                 <span style={{ fontSize: 36, fontWeight: 900, color: accent ? '#dc2626' : '#111827' }}>
                   {discountedPrice.toLocaleString('fr-FR')}
                 </span>
-                <span style={{ color: '#6b7280', fontSize: 14 }}>{plan.currency}{plan.period}</span>
+                <span style={{ color: '#6b7280', fontSize: 14, whiteSpace: 'nowrap' }}>{plan.currency}{plan.period}</span>
               </div>
               {plan.launch && (
                 <p style={{ fontSize: 12, color: '#b91c1c', fontWeight: 600, margin: '4px 0 0' }}>
