@@ -118,7 +118,7 @@ function SuccessContent() {
         <div style={{ fontSize: 72, marginBottom: 16 }}>✅</div>
         <h1 style={{ fontSize: 26, fontWeight: 900, color: '#166534', marginBottom: 8 }}>Paiement réussi !</h1>
         <p style={{ color: '#374151', marginBottom: 24, lineHeight: 1.6 }}>
-          Votre abonnement <strong>{plan === 'annuel' ? 'Annuel' : 'Mensuel'}</strong> est maintenant actif.
+          Votre abonnement <strong>{plan === 'annuel' ? 'Annuel' : plan === 'semaine' ? 'Hebdomadaire' : 'Mensuel'}</strong> est maintenant actif.
           <br />Profitez de tout le contenu Sama Doom.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 280, margin: '0 auto' }}>

@@ -210,7 +210,7 @@ export default function SuperAdminReferralsPage() {
                           background: e.plan === 'annuel' ? '#eff6ff' : '#f5f3ff',
                           color: e.plan === 'annuel' ? '#1d4ed8' : '#7c3aed',
                         }}>
-                          {e.plan === 'annuel' ? 'Annuel' : 'Mensuel'}
+                          {e.plan === 'annuel' ? 'Annuel' : e.plan === 'semaine' ? 'Hebdo' : 'Mensuel'}
                         </span>
                       </td>
                       <td style={{ padding: '12px 14px', fontWeight: 700, color: '#111827' }}>{fmt(e.amountPaid)} FCFA</td>

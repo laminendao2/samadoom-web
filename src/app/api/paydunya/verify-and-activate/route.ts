@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 import { getAuth } from 'firebase-admin/auth';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { computePlanExpiry } from '@/lib/plans';
 
 const PAYDUNYA_BASE_URL = process.env.PAYDUNYA_MODE === 'live'
   ? 'https://app.paydunya.com/api/v1'
@@ -76,12 +77,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Activer l'abonnement
-    const expiresAt = new Date();
-    if (payment.plan === 'mensuel') {
-      expiresAt.setMonth(expiresAt.getMonth() + 1);
-    } else if (payment.plan === 'annuel') {
-      expiresAt.setFullYear(expiresAt.getFullYear() + 1);
-    }
+    const expiresAt = computePlanExpiry(payment.plan);
 
     await paymentRef.update({
       status: 'completed',
@@ -94,6 +90,7 @@ export async function POST(req: NextRequest) {
       plan: payment.plan,
       planActivatedAt: new Date().toISOString(),
       planExpiresAt: expiresAt.toISOString(),
+      subscriptionEnd: Timestamp.fromDate(expiresAt),
       lastPaymentToken: token,
       lastPaymentProvider: 'paydunya',
     });

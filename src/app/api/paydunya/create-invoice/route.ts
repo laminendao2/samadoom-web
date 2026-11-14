@@ -1,22 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
+import { PAYDUNYA_PLANS, isPlanId } from '@/lib/plans';
 
 const PAYDUNYA_BASE_URL = process.env.PAYDUNYA_MODE === 'live'
   ? 'https://app.paydunya.com/api/v1'
   : 'https://app.paydunya.com/sandbox-api/v1';
-
-const PLANS: Record<string, { name: string; amount: number; description: string }> = {
-  mensuel: {
-    name: 'Abonnement Mensuel',
-    amount: 3000, // FCFA
-    description: 'Accès complet Sama Doom — 1 mois',
-  },
-  annuel: {
-    name: 'Abonnement Annuel',
-    amount: 24000, // FCFA (économise 2 mois)
-    description: 'Accès complet Sama Doom — 12 mois (2 mois offerts)',
-  },
-};
 
 const REFERRAL_DISCOUNT = 0.05; // 5% de réduction pour l'acheteur
 
@@ -24,14 +12,14 @@ export async function POST(req: NextRequest) {
   try {
     const { plan, userId, userEmail, referralCode } = await req.json();
 
-    if (!plan || !PLANS[plan]) {
+    if (!isPlanId(plan)) {
       return NextResponse.json({ error: 'Plan invalide' }, { status: 400 });
     }
     if (!userId || !userEmail) {
       return NextResponse.json({ error: 'Utilisateur requis' }, { status: 401 });
     }
 
-    const planInfo = PLANS[plan];
+    const planInfo = PAYDUNYA_PLANS[plan];
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://samadoom.com';
 
     // --- Gestion du code de parrainage ---
@@ -58,7 +46,7 @@ export async function POST(req: NextRequest) {
       invoice: {
         total_amount: finalAmount,
         description: validatedReferralCode
-          ? `${planInfo.description} (-10% parrainage)`
+          ? `${planInfo.description} (-5% parrainage)`
           : planInfo.description,
       },
       store: {
@@ -81,6 +69,7 @@ export async function POST(req: NextRequest) {
         referralCode: validatedReferralCode,
         referrerId,
         originalAmount: planInfo.amount,
+        regularAmount: planInfo.regularAmount,
       },
     };
 
