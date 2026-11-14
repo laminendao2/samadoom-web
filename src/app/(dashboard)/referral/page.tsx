@@ -30,7 +30,10 @@ export default function ReferralPage() {
   const fetchReferral = useCallback(async () => {
     if (!user) return;
     try {
-      const res = await fetch(`/api/referral/generate?userId=${user.uid}`);
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/referral/generate', {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
       const data = await res.json();
       setReferral(data.code ? data : null);
     } catch {
@@ -49,11 +52,11 @@ export default function ReferralPage() {
     setGenerating(true);
     setError('');
     try {
+      const idToken = await user.getIdToken();
       const res = await fetch('/api/referral/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
-          userId: user.uid,
           userName: profile.name || user.email || 'Utilisateur',
           userEmail: user.email,
         }),

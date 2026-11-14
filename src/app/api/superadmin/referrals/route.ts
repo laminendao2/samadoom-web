@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
+import { isSuperAdminUid, verifyRequestUser } from '@/lib/server-auth';
 
 /**
  * GET /api/superadmin/referrals
@@ -10,22 +11,12 @@ import { adminDb } from '@/lib/firebase-admin';
  */
 export async function GET(req: NextRequest) {
   try {
-    // Vérifier que l'appelant est superadmin via header userId
-    const userId = req.headers.get('x-user-id');
-    if (!userId) {
+    // L'appelant doit prouver son identité (token Firebase) ET être superadmin
+    const authUser = await verifyRequestUser(req);
+    if (!authUser) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }
-
-    const userDoc = await adminDb.collection('users').doc(userId).get();
-    if (!userDoc.exists) {
-      return NextResponse.json({ error: 'Utilisateur introuvable' }, { status: 403 });
-    }
-    const userData = userDoc.data()!;
-    const isSuperAdmin =
-      userData.role === 'superadmin' ||
-      (Array.isArray(userData.roles) && userData.roles.includes('superadmin'));
-
-    if (!isSuperAdmin) {
+    if (!(await isSuperAdminUid(authUser.uid))) {
       return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
     }
 
@@ -76,10 +67,10 @@ export async function GET(req: NextRequest) {
     const totalUsage = codes.reduce((sum, c) => sum + c.usageCount, 0);
     const totalBalance = codes.reduce((sum, c) => sum + c.balance, 0);
 
-    // Calcul économies acheteurs (10% appliqué)
+    // Calcul économies acheteurs (5 % appliqué)
     const totalSavings = earnings.reduce((sum, e) => {
-      // originalAmount = amountPaid / 0.9 → économie = originalAmount * 0.1
-      const original = Math.round(e.amountPaid / 0.9);
+      // réduction acheteur de 5 % : original = payé / 0.95
+      const original = Math.round(e.amountPaid / 0.95);
       return sum + (original - e.amountPaid);
     }, 0);
 

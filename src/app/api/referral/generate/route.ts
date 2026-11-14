@@ -1,20 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
+import { verifyRequestUser } from '@/lib/server-auth';
 
 /**
  * POST /api/referral/generate
- * Body: { userId, userName, userEmail }
+ * Auth: Firebase ID token (Authorization: Bearer …)
  *
  * Génère (ou retourne l'existant) un code de parrainage pour un utilisateur.
  * Format: PRÉNOM + 4 chiffres aléatoires — ex: CHEIKH4821
  */
 export async function POST(req: NextRequest) {
   try {
-    const { userId, userName, userEmail } = await req.json();
-
-    if (!userId || !userName) {
-      return NextResponse.json({ error: 'userId et userName requis' }, { status: 400 });
+    // Un utilisateur ne peut créer un code que pour lui-même
+    const authUser = await verifyRequestUser(req);
+    if (!authUser) {
+      return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
     }
+    const userId = authUser.uid;
+    const userEmail = authUser.email || '';
+
+    const body = await req.json().catch(() => ({}));
+    const profileSnap = await adminDb.collection('users').doc(userId).get();
+    const userName = String(profileSnap.data()?.name || body.userName || userEmail || 'Utilisateur')
+      .trim()
+      .slice(0, 60);
 
     // Vérifier si l'utilisateur a déjà un code
     const existingSnap = await adminDb
@@ -35,11 +44,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Générer un nouveau code unique
-    const firstName = userName
+    const firstName = (userName
       .split(' ')[0]
+      .normalize('NFD')
       .toUpperCase()
       .replace(/[^A-Z]/g, '')
-      .slice(0, 10);
+      .slice(0, 10)) || 'SAMA';
 
     let code: string;
     let attempts = 0;
@@ -87,11 +97,16 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const userId = searchParams.get('userId');
-
-    if (!userId) {
-      return NextResponse.json({ error: 'userId requis' }, { status: 400 });
+    // Chacun ne peut lire que son propre code et son propre solde
+    const authUser = await verifyRequestUser(req);
+    if (!authUser) {
+      return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
     }
+    const requested = searchParams.get('userId');
+    if (requested && requested !== authUser.uid) {
+      return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+    }
+    const userId = authUser.uid;
 
     const snap = await adminDb
       .collection('referralCodes')

@@ -1,20 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
-import { getAuth } from 'firebase-admin/auth';
+import { verifyRequestUser } from '@/lib/server-auth';
+import { activatePaydunyaPayment } from '@/lib/subscription';
 
 export async function GET(req: NextRequest) {
   try {
-    // Authenticate
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
+    const authUser = await verifyRequestUser(req);
+    if (!authUser) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
-    }
-    const idToken = authHeader.slice(7);
-    let decodedToken;
-    try {
-      decodedToken = await getAuth().verifyIdToken(idToken);
-    } catch {
-      return NextResponse.json({ error: 'Token invalide' }, { status: 401 });
     }
 
     const token = req.nextUrl.searchParams.get('token');
@@ -22,17 +15,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Token requis' }, { status: 400 });
     }
 
-    const paySnap = await adminDb.collection('payments').doc(token).get();
+    const paymentRef = adminDb.collection('payments').doc(token);
+    let paySnap = await paymentRef.get();
     if (!paySnap.exists) {
       return NextResponse.json({ error: 'Paiement introuvable' }, { status: 404 });
     }
-
-    const payment = paySnap.data()!;
     // Security: only the user who created the invoice can check it
-    if (payment.userId !== decodedToken.uid) {
+    if (paySnap.data()!.userId !== authUser.uid) {
       return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
     }
 
+    // Encore en attente : on interroge PayDunya (filet de sécurité si le webhook n'est pas arrivé)
+    if (paySnap.data()!.status === 'pending' && paySnap.data()!.provider === 'paydunya') {
+      await activatePaydunyaPayment(token);
+      paySnap = await paymentRef.get();
+    }
+
+    const payment = paySnap.data()!;
     return NextResponse.json({
       status: payment.status,
       plan: payment.plan,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase-admin';
+import { verifyRequestUser } from '@/lib/server-auth';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-10-28.endive',
@@ -16,9 +17,21 @@ const REFERRAL_DISCOUNT = 0.05; // 5%
 
 export async function POST(req: NextRequest) {
   try {
-    const { plan, userId, userEmail, referralCode } = await req.json();
+    // L'identité vient du token Firebase, jamais du corps de la requête
+    const authUser = await verifyRequestUser(req);
+    if (!authUser) {
+      return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+    }
+    const userId = authUser.uid;
+    const userEmail = authUser.email || '';
 
-    if (!plan || !userId || !STRIPE_PRICES[plan]) {
+    const body = await req.json();
+    const plan = typeof body.plan === 'string' ? body.plan : '';
+    const referralCode = typeof body.referralCode === 'string' && /^[A-Za-z0-9]{3,20}$/.test(body.referralCode.trim())
+      ? body.referralCode.trim().toUpperCase()
+      : null;
+
+    if (!plan || !Object.prototype.hasOwnProperty.call(STRIPE_PRICES, plan)) {
       return NextResponse.json({ error: 'Plan invalide' }, { status: 400 });
     }
 
@@ -29,7 +42,7 @@ export async function POST(req: NextRequest) {
     // Valider le code de parrainage si fourni
     if (referralCode) {
       try {
-        const snap = await adminDb.collection('referralCodes').doc(referralCode.toUpperCase()).get();
+        const snap = await adminDb.collection('referralCodes').doc(referralCode).get();
         if (snap.exists) {
           const refData = snap.data()!;
           // Bloquer auto-parrainage
@@ -48,7 +61,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const origin = req.headers.get('origin') || 'https://samadoom.com';
+    // URL de retour fixe : ne pas faire confiance au header Origin
+    const origin = process.env.NEXT_PUBLIC_SITE_URL || 'https://samadoom.com';
 
     // Créer la session Stripe Checkout
     const session = await stripe.checkout.sessions.create({
@@ -62,7 +76,7 @@ export async function POST(req: NextRequest) {
             product_data: {
               name: `Sama Doom — Plan ${plan === 'mensuel' ? 'Mensuel' : 'Annuel'}`,
               description: discountApplied
-                ? `Accès Pro Sama Doom (-10% parrainage code ${referralCode})`
+                ? `Accès Pro Sama Doom (-5% parrainage code ${referralCode})`
                 : 'Accès complet à tout le contenu islamique',
             },
           },

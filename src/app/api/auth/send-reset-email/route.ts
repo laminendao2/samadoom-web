@@ -4,8 +4,11 @@ import { getPasswordResetEmail } from '@/lib/emailTemplates';
 
 export async function POST(req: NextRequest) {
   try {
-    const { email } = await req.json();
-    if (!email) return NextResponse.json({ error: 'Email requis' }, { status: 400 });
+    const body = await req.json().catch(() => ({}));
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return NextResponse.json({ error: 'Email requis' }, { status: 400 });
+    }
 
     const resetLink = await adminAuth.generatePasswordResetLink(email, {
       url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://samadoom.com'}/login`,
@@ -46,7 +49,8 @@ export async function POST(req: NextRequest) {
     if (msg.includes('USER_NOT_FOUND') || msg.includes('user-not-found')) {
       return NextResponse.json({ ok: true });
     }
-    console.error('send-reset-email error:', err);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error('send-reset-email error:', msg);
+    // Message générique : ne pas exposer les détails internes
+    return NextResponse.json({ error: 'Erreur envoi email' }, { status: 500 });
   }
 }
