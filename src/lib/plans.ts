@@ -26,9 +26,9 @@ export const PAYDUNYA_PLANS: Record<PlanId, PlanConfig> = {
   },
   annuel: {
     name: 'Abonnement Annuel',
-    amount: 24000,
+    amount: 15000, // prix de lancement
     regularAmount: 24000,
-    description: 'Accès complet Sama Doom — 12 mois',
+    description: 'Accès complet Sama Doom — 12 mois (prix de lancement)',
   },
 };
 

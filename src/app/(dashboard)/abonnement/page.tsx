@@ -45,7 +45,9 @@ const BASE_PLANS: Plan[] = [
   {
     id: 'annuel',
     name: 'Annuel',
-    price: 24000,
+    price: 15000,
+    regularPrice: 24000,
+    launch: true,
     stripePriceLabel: '$39',
     currency: 'FCFA',
     period: '/an',
