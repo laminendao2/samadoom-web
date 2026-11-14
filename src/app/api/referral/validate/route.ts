@@ -5,9 +5,13 @@ import { adminDb } from '@/lib/firebase-admin';
  * GET /api/referral/validate?code=CHEIKH4821&userId=xxx
  *
  * Valide un code de parrainage.
- * - Vérifie que le code existe
+ * - Vérifie que le code existe (toute personne inscrite peut partager un code)
  * - Vérifie que l'utilisateur n'utilise pas son propre code
  * Retourne: { valid, discountPercent, referrerName }
+ *
+ * Note : on ne requiert PAS que le parrain soit Pro pour accepter son code.
+ * Le code est valide dès qu'il est généré. La commission est créditée quand
+ * quelqu'un s'abonne via ce code, que le parrain soit Pro ou non.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -22,7 +26,10 @@ export async function GET(req: NextRequest) {
     const snap = await adminDb.collection('referralCodes').doc(code).get();
 
     if (!snap.exists) {
-      return NextResponse.json({ valid: false, error: 'Code invalide' });
+      return NextResponse.json({
+        valid: false,
+        error: 'Code introuvable. Votre ami doit d\'abord activer son code sur samadoom.com/referral',
+      });
     }
 
     const referral = snap.data()!;
@@ -30,33 +37,6 @@ export async function GET(req: NextRequest) {
     // Bloquer l'auto-parrainage
     if (userId && referral.userId === userId) {
       return NextResponse.json({ valid: false, error: 'Vous ne pouvez pas utiliser votre propre code' });
-    }
-
-    // Vérifier que le parrain a un abonnement actif (isPro Firestore OU planExpiresAt OU subscriptionEnd)
-    const referrerDoc = await adminDb.collection('users').doc(referral.userId).get();
-    const referrerData = referrerDoc.data();
-
-    // Convertir subscriptionEnd (peut être Timestamp Firestore ou string)
-    const toDate = (val: unknown): Date | null => {
-      if (!val) return null;
-      if (val && typeof (val as { toDate?: () => Date }).toDate === 'function') {
-        return (val as { toDate: () => Date }).toDate();
-      }
-      if (typeof val === 'string' || typeof val === 'number') {
-        const d = new Date(val);
-        return isNaN(d.getTime()) ? null : d;
-      }
-      return null;
-    };
-
-    const now = new Date();
-    const isReferrerPro =
-      referrerData?.isPro === true ||
-      (referrerData?.planExpiresAt && toDate(referrerData.planExpiresAt) && toDate(referrerData.planExpiresAt)! > now) ||
-      (referrerData?.subscriptionEnd && toDate(referrerData.subscriptionEnd) && toDate(referrerData.subscriptionEnd)! > now);
-
-    if (!isReferrerPro) {
-      return NextResponse.json({ valid: false, error: 'Ce code n\'est plus actif' });
     }
 
     return NextResponse.json({

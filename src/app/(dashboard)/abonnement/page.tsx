@@ -366,10 +366,10 @@ function AbonnementContent() {
           </div>
         )}
         {referralError && (
-          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>⚠️</span>
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+            <span style={{ flexShrink: 0 }}>⚠️</span>
             <p style={{ fontSize: 13, color: '#b45309', margin: 0 }}>
-              {referralError} — vous pouvez continuer sans réduction.
+              {referralError}
             </p>
           </div>
         )}
