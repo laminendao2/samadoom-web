@@ -16,9 +16,45 @@ service cloud.firestore {
       );
     }
 
+    // Champs d'abonnement / privilèges : jamais modifiables par l'utilisateur lui-même.
+    // Seuls le serveur (Admin SDK : webhooks de paiement) et le SuperAdmin les écrivent.
+    function protectedUserKeys() {
+      return ['isPro', 'subscriptionEnd', 'plan', 'planExpiresAt', 'planActivatedAt',
+              'isAdmin', 'lastPaymentToken', 'lastPaymentProvider'];
+    }
+    function claimsSuperAdmin(d) {
+      return ('role' in d && (d.role == 'superadmin' || (d.role is list && 'superadmin' in d.role)))
+          || ('roles' in d && d.roles is list && 'superadmin' in d.roles);
+    }
+    // Un nouveau profil ne peut contenir ni abonnement ni privilège
+    function cleanNewUser(d) {
+      return !claimsSuperAdmin(d)
+        && d.get('isPro', false) == false
+        && d.get('isAdmin', false) == false
+        && d.get('subscriptionEnd', null) == null
+        && d.get('plan', null) == null
+        && d.get('planExpiresAt', null) == null
+        && d.get('planActivatedAt', null) == null
+        && d.get('lastPaymentToken', null) == null
+        && d.get('lastPaymentProvider', null) == null;
+    }
+    function keepsProtectedUserKeys() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(protectedUserKeys())
+        && (!claimsSuperAdmin(request.resource.data) || claimsSuperAdmin(resource.data));
+    }
+
     match /users/{uid} {
       allow read: if isAuth();
-      allow write: if isUser(uid) || isAdmin() || isSuperAdmin();
+      // L'utilisateur gère son profil, sans pouvoir s'attribuer abonnement ou rôle superadmin
+      allow create: if isUser(uid) && cleanNewUser(request.resource.data);
+      allow update: if isUser(uid) && keepsProtectedUserKeys();
+      allow delete: if isUser(uid);
+      // Admin (champ isAdmin) : mêmes limites sur les champs protégés
+      allow create: if isAdmin() && cleanNewUser(request.resource.data);
+      allow update: if isAdmin() && keepsProtectedUserKeys();
+      allow delete: if isAdmin();
+      // SuperAdmin : accès complet
+      allow write: if isSuperAdmin();
       // SuperAdmin peut accorder un abonnement à n'importe quel utilisateur
       allow update: if isSuperAdmin() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['subscriptionEnd']);
@@ -317,9 +353,51 @@ service cloud.firestore {
       allow write: if false;
     }
     match /payments/{docId} {
-      // Accès serveur uniquement via Admin SDK
-      allow read, write: if false;
+      // Écriture serveur uniquement (Admin SDK) ; lecture réservée au SuperAdmin
+      allow read: if isSuperAdmin();
+      allow write: if false;
     }
+    match /withdrawals/{docId} {
+      // Retraits de parrainage : l'utilisateur voit les siens, écriture serveur uniquement
+      allow read: if isAuth() && (resource.data.userId == request.auth.uid || isSuperAdmin());
+      allow write: if false;
+    }
+    // ── Dossiers de cours & sous-groupes (halaqa) ────────────────────────────
+    match /sousGroupes/{docId} {
+      allow read: if isAuth();
+      allow create: if isAuth() && request.resource.data.profUid == request.auth.uid;
+      allow update: if isAuth() && resource.data.profUid == request.auth.uid
+                       && request.resource.data.profUid == request.auth.uid;
+      allow delete: if isAuth() && resource.data.profUid == request.auth.uid;
+    }
+    match /dossiers/{dossierId} {
+      allow read: if isAuth();
+      allow create: if isAuth() && request.resource.data.profUid == request.auth.uid;
+      allow update: if isAuth() && resource.data.profUid == request.auth.uid
+                       && request.resource.data.profUid == request.auth.uid;
+      allow delete: if isAuth() && resource.data.profUid == request.auth.uid;
+      match /ressources/{ressourceId} {
+        allow read: if isAuth();
+        allow write: if isAuth() &&
+          get(/databases/$(database)/documents/dossiers/$(dossierId)).data.profUid == request.auth.uid;
+      }
+    }
+    // ── Évaluations Coran (notes du professeur) ──────────────────────────────
+    match /coranAssessments/{docId} {
+      allow read: if isAuth();
+      allow create: if isAuth() && request.resource.data.teacherId == request.auth.uid;
+      allow update, delete: if isAuth() && resource.data.teacherId == request.auth.uid;
+    }
+    // ── Vie scolaire (même régime que classes / absences / notes) ────────────
+    match /annonces/{docId}   { allow read, write: if isAuth(); }
+    match /devoirs/{docId}    { allow read, write: if isAuth(); }
+    match /examens/{docId}    { allow read, write: if isAuth(); }
+    match /exercices/{docId}  { allow read, write: if isAuth(); }
+    match /fraisEcole/{docId} { allow read, write: if isAuth(); }
+    match /retards/{docId}    { allow read, write: if isAuth(); }
+    // ── Statistiques SuperAdmin ──────────────────────────────────────────────
+    match /sessions/{docId} { allow read: if isSuperAdmin(); allow create: if isAuth(); }
+    match /progres/{docId}  { allow read: if isSuperAdmin(); allow create: if isAuth(); }
     // ─────────────────────────────────────────────────────────────────────────
   }
 }
