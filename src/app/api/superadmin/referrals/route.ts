@@ -57,6 +57,8 @@ export async function GET(req: NextRequest) {
         plan: d.plan,
         amountPaid: d.amountPaid,
         commission: d.commission,
+        currency: d.currency ?? 'XOF',
+        provider: d.provider ?? 'paydunya',
         status: d.status,
         createdAt: d.createdAt,
       };

@@ -21,6 +21,8 @@ interface Earning {
   plan: string;
   amountPaid: number;
   commission: number;
+  currency: string;
+  provider: string;
   status: string;
   createdAt: string;
 }
@@ -35,6 +37,19 @@ interface Totals {
 
 function fmt(n: number) {
   return n.toLocaleString('fr-FR');
+}
+
+/** Affiche un montant avec sa devise correcte.
+ *  Stripe stocke en centimes USD → diviser par 100 pour afficher en $.
+ *  PayDunya stocke en FCFA entiers → afficher tel quel.
+ */
+function fmtAmount(amount: number, currency: string): string {
+  const cur = (currency ?? 'XOF').toUpperCase();
+  if (cur === 'USD') {
+    // Stripe : montant en centimes
+    return `$${(amount / 100).toFixed(2)}`;
+  }
+  return `${fmt(amount)} FCFA`;
 }
 
 function fmtDate(s: string) {
@@ -192,7 +207,10 @@ export default function SuperAdminReferralsPage() {
               </thead>
               <tbody>
                 {earnings.map((e, i) => {
-                  const original = Math.round(e.amountPaid / 0.9);
+                  const isUsd = (e.currency ?? 'XOF').toUpperCase() === 'USD';
+                  // Économie acheteur : 5% de réduction appliquée
+                  // Pour USD (centimes) on calcule en centimes, pour XOF en entier
+                  const original = Math.round(e.amountPaid / 0.95);
                   const saving = original - e.amountPaid;
                   return (
                     <tr key={e.id} style={{ borderBottom: i < earnings.length - 1 ? '1px solid #f3f4f6' : 'none' }}>
@@ -214,13 +232,18 @@ export default function SuperAdminReferralsPage() {
                           {e.plan === 'annuel' ? 'Annuel' : e.plan === 'semaine' ? 'Hebdo' : 'Mensuel'}
                         </span>
                       </td>
-                      <td style={{ padding: '12px 14px', fontWeight: 700, color: '#111827' }}>{fmt(e.amountPaid)} FCFA</td>
-                      <td style={{ padding: '12px 14px', color: '#dc2626', fontWeight: 600 }}>-{fmt(saving)} FCFA</td>
+                      <td style={{ padding: '12px 14px', fontWeight: 700, color: '#111827' }}>
+                        {fmtAmount(e.amountPaid, e.currency)}
+                        {isUsd && <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 4 }}>USD</span>}
+                      </td>
+                      <td style={{ padding: '12px 14px', color: '#dc2626', fontWeight: 600 }}>
+                        -{fmtAmount(saving, e.currency)}
+                      </td>
                       <td style={{ padding: '12px 14px' }}>
                         <span style={{
                           fontWeight: 700, color: '#166534',
                           background: '#f0fdf4', padding: '3px 10px', borderRadius: 6, fontSize: 12,
-                        }}>+{fmt(e.commission)} FCFA</span>
+                        }}>+{fmtAmount(e.commission, e.currency)}</span>
                       </td>
                     </tr>
                   );
