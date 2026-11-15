@@ -330,7 +330,7 @@ export default function ReferralPage() {
             {[
               { label: 'Solde disponible', value: `${referral.balance?.toLocaleString('fr-FR') ?? 0} FCFA`, color: '#166534', bg: '#f0fdf4', border: '#bbf7d0' },
               { label: 'Total gagné', value: `${referral.totalEarned?.toLocaleString('fr-FR') ?? 0} FCFA`, color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
-              { label: 'Filleuls', value: referral.usageCount ?? 0, color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
+              { label: 'Filleuls', value: loadingReferred ? '…' : referredUsers.length, color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
             ].map(stat => (
               <div key={stat.label} style={{
                 background: stat.bg,
