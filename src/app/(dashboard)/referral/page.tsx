@@ -565,14 +565,8 @@ export default function ReferralPage() {
                   const date = u.completedAt
                     ? new Date(u.completedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
                     : '—';
-                  const planLabel = u.plan === 'annuel' ? '📅 Annuel' : u.plan === 'mensuel' ? '📆 Mensuel' : u.plan || '—';
-                  // Masquer partiellement l'email pour la confidentialité
-                  const maskedEmail = (() => {
-                    const [local, domain] = u.userEmail.split('@');
-                    if (!local || !domain) return u.userEmail;
-                    const visible = local.length > 2 ? local.slice(0, 2) : local[0];
-                    return `${visible}${'*'.repeat(Math.max(2, local.length - 2))}@${domain}`;
-                  })();
+                  const planLabel = u.plan === 'annuel' ? '📅 Annuel' : u.plan === 'mensuel' ? '📆 Mensuel' : u.plan === 'semaine' ? '📆 Semaine' : u.plan || '—';
+                  const displayName = u.userName || 'Filleul';
 
                   return (
                     <div key={u.userId} style={{
@@ -592,19 +586,14 @@ export default function ReferralPage() {
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         color: 'white', fontWeight: 700, fontSize: 15, flexShrink: 0,
                       }}>
-                        {(u.userName || u.userEmail || '?')[0].toUpperCase()}
+                        {displayName[0].toUpperCase()}
                       </div>
 
                       {/* Infos */}
                       <div style={{ flex: 1, minWidth: 120 }}>
-                        <p style={{ margin: '0 0 2px', fontWeight: 700, fontSize: 14, color: '#111827' }}>
-                          {u.userName || maskedEmail}
+                        <p style={{ margin: '0 0 4px', fontWeight: 700, fontSize: 14, color: '#111827' }}>
+                          {displayName}
                         </p>
-                        {u.userName && (
-                          <p style={{ margin: '0 0 2px', fontSize: 12, color: '#6b7280' }}>
-                            {maskedEmail}
-                          </p>
-                        )}
                         <p style={{ margin: 0, fontSize: 12, color: '#6b7280' }}>
                           {planLabel} · {date}
                         </p>
