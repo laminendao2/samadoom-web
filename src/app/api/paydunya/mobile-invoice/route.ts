@@ -27,7 +27,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Token invalide' }, { status: 401 });
     }
 
-    const { plan } = await req.json();
+    const body = await req.json();
+    const { plan, referralCode: bodyReferralCode } = body;
     if (!plan || !PLANS[plan]) {
       return NextResponse.json({ error: 'Plan invalide' }, { status: 400 });
     }
@@ -37,14 +38,17 @@ export async function POST(req: NextRequest) {
     const planInfo = PLANS[plan];
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://samadoom.com';
 
-    // Récupérer le code parrain sauvegardé sur le profil
+    // Code parrain : priorité au code envoyé dans le body, sinon lire depuis le profil Firestore
     const REFERRAL_DISCOUNT = 0.05;
     let finalAmount = planInfo.amount;
     let validatedReferralCode: string | null = null;
     let referrerId: string | null = null;
 
     const userSnap = await adminDb.collection('users').doc(userId).get();
-    const savedCode = userSnap.data()?.savedReferralCode || null;
+    const savedCode = (typeof bodyReferralCode === 'string' && /^[A-Za-z0-9]{3,20}$/.test(bodyReferralCode.trim()))
+      ? bodyReferralCode.trim().toUpperCase()
+      : (userSnap.data()?.savedReferralCode || null);
+
     if (savedCode) {
       const refSnap = await adminDb.collection('referralCodes').doc(savedCode).get();
       if (refSnap.exists) {
@@ -57,7 +61,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const body = {
+    const invoiceBody = {
       invoice: {
         total_amount: finalAmount,
         description: validatedReferralCode
@@ -89,7 +93,7 @@ export async function POST(req: NextRequest) {
         'PAYDUNYA-TOKEN': process.env.PAYDUNYA_TOKEN!,
         'PAYDUNYA-PUBLIC-KEY': process.env.PAYDUNYA_PUBLIC_KEY!,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(invoiceBody),
     });
 
     const data = await response.json();
