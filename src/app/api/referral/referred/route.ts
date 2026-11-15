@@ -108,7 +108,16 @@ export async function GET(req: NextRequest) {
     const referred = Object.values(referredMap)
       .sort((a, b) => (b.completedAt > a.completedAt ? 1 : -1));
 
-    return NextResponse.json({ referred });
+    // Debug temporaire — à supprimer après vérification
+    const debug = {
+      userCode,
+      earningsCount: earningsSnap.size,
+      paymentsCount: paymentsSnap.size,
+      sampleEarning: earningsSnap.docs[0]?.data() ?? null,
+      samplePayment: paymentsSnap.docs[0]?.data() ?? null,
+    };
+
+    return NextResponse.json({ referred, debug });
   } catch (err) {
     console.error('Referral referred error:', err);
     return NextResponse.json({ error: String(err) }, { status: 500 });
