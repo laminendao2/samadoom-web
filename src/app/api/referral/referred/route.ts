@@ -108,12 +108,22 @@ export async function GET(req: NextRequest) {
     const referred = Object.values(referredMap)
       .sort((a, b) => (b.completedAt > a.completedAt ? 1 : -1));
 
-    // Debug temporaire — à supprimer après vérification
+    // Debug temporaire
+    // Chercher aussi par referrerId directement dans referralEarnings
+    const earningsByReferrer = await adminDb
+      .collection('referralEarnings')
+      .where('referrerId', '==', uid)
+      .limit(10)
+      .get();
+
     const debug = {
       userCode,
+      uid,
       earningsCount: earningsSnap.size,
       paymentsCount: paymentsSnap.size,
-      sampleEarning: earningsSnap.docs[0]?.data() ?? null,
+      earningsByReferrerCount: earningsByReferrer.size,
+      sampleEarningByReferrer: earningsByReferrer.docs[0]?.data() ?? null,
+      sampleEarningByCode: earningsSnap.docs[0]?.data() ?? null,
       samplePayment: paymentsSnap.docs[0]?.data() ?? null,
     };
 
