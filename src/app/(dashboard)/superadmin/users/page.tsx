@@ -294,7 +294,13 @@ export default function SuperAdminUsersPage() {
                             className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-200 transition-colors">
                             👤 Rôles
                           </button>
-                          <button onClick={() => { setModal({ user: u, mode: 'grant' }); setGrantDate(''); }}
+                          <button onClick={() => {
+                            setModal({ user: u, mode: 'grant' });
+                            // Pré-remplir avec aujourd'hui + 1 mois
+                            const d = new Date();
+                            d.setMonth(d.getMonth() + 1);
+                            setGrantDate(d.toISOString().slice(0, 10));
+                          }}
                             className="px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-xs font-semibold hover:bg-green-200 transition-colors">
                             ⭐ Abonner
                           </button>
@@ -376,8 +382,17 @@ export default function SuperAdminUsersPage() {
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Date de fin d'abonnement</label>
                 <input type="date" value={grantDate} onChange={e => setGrantDate(e.target.value)}
                   min={new Date().toISOString().split('T')[0]}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-200 mb-6"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-200 mb-2"
                 />
+                <div className="flex gap-2 mb-6">
+                  {[1, 3, 6, 12].map(months => (
+                    <button key={months} type="button"
+                      onClick={() => { const d = new Date(); d.setMonth(d.getMonth() + months); setGrantDate(d.toISOString().slice(0, 10)); }}
+                      className="flex-1 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-700 transition-colors">
+                      +{months}m
+                    </button>
+                  ))}
+                </div>
                 <div className="flex gap-3">
                   <button onClick={() => setModal(null)} className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">Annuler</button>
                   <button onClick={handleGrant} disabled={!grantDate || saving}
