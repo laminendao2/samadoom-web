@@ -159,10 +159,14 @@ export async function finalizePaidPayment(
     if (payment.referralCode) userUpdate.savedReferralCode = payment.referralCode;
     tx.set(userRef, userUpdate, { merge: true });
 
-    // Commission du parrain : seulement s'il a lui-même un abonnement actif
+    // Commission du parrain : Pro vérifié soit au moment du paiement (referrerId déjà validé
+    // dans create-checkout quand discountApplied=true), soit en temps réel sinon.
+    const referrerValidated = payment.discountApplied === true
+      || isUserPro(referrerSnap?.data(), now);
     if (hasReferral && codeRef && codeSnap?.exists
         && codeSnap.data()?.userId === payment.referrerId
-        && isUserPro(referrerSnap?.data(), now)) {
+        && referrerValidated) {
+      // Pour Stripe (USD cents) convertir en entier cohérent ; pour PayDunya laisser tel quel
       const commission = Math.round(payment.amount * REFERRAL_COMMISSION);
       // Id déterministe : un paiement ne peut créer qu'une seule ligne de gain
       tx.set(adminDb.collection('referralEarnings').doc(`pay_${paymentId}`), {

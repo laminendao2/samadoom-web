@@ -2,6 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase-admin';
 import { verifyRequestUser } from '@/lib/server-auth';
+import { Timestamp } from 'firebase-admin/firestore';
+
+function toDate(v: unknown): Date | null {
+  if (!v) return null;
+  if (v instanceof Timestamp) return v.toDate();
+  if (typeof v === 'string' || typeof v === 'number') {
+    const d = new Date(v); return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+function isReferrerPro(data: FirebaseFirestore.DocumentData | undefined): boolean {
+  if (!data) return false;
+  const dates = [toDate(data.planExpiresAt), toDate(data.subscriptionEnd)].filter((d): d is Date => d !== null);
+  if (dates.length) return new Date(Math.max(...dates.map(d => d.getTime()))) > new Date();
+  return data.isPro === true;
+}
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-10-28.endive',
@@ -49,7 +65,7 @@ export async function POST(req: NextRequest) {
           if (refData.userId !== userId) {
             // Vérifier que le parrain est abonné
             const referrerDoc = await adminDb.collection('users').doc(refData.userId).get();
-            if (referrerDoc.data()?.isPro) {
+            if (isReferrerPro(referrerDoc.data())) {
               finalAmount = Math.round(finalAmount * (1 - REFERRAL_DISCOUNT));
               referrerId = refData.userId;
               discountApplied = true;
