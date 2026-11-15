@@ -4,6 +4,7 @@ import { collection, getDocs, query, limit, Timestamp } from 'firebase/firestore
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
+import { getAuth } from 'firebase/auth';
 import Link from 'next/link';
 
 interface Stats {
@@ -39,6 +40,8 @@ export default function SuperAdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [retryLoading, setRetryLoading] = useState(false);
+  const [retryResult, setRetryResult] = useState<{ activated: number; already: number; cancelled: number; total: number } | null>(null);
 
   const isSuperAdmin =
     profile?.role === 'superadmin' || (profile?.roles ?? []).includes('superadmin');
@@ -48,6 +51,26 @@ export default function SuperAdminDashboard() {
     if (!isSuperAdmin) { router.replace('/dashboard'); return; }
     loadAll();
   }, [profile]);
+
+  async function retryStripePayments() {
+    setRetryLoading(true);
+    setRetryResult(null);
+    try {
+      const idToken = await getAuth().currentUser?.getIdToken();
+      const res = await fetch('/api/admin/retry-stripe-payments', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      setRetryResult(data);
+      // Recharger les paiements pour refléter les changements
+      await loadAll();
+    } catch {
+      setRetryResult({ activated: 0, already: 0, cancelled: 0, total: 0 });
+    } finally {
+      setRetryLoading(false);
+    }
+  }
 
   async function loadAll() {
     try {
@@ -143,9 +166,23 @@ export default function SuperAdminDashboard() {
 
           {/* Recent payments */}
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between">
+            <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between gap-3 flex-wrap">
               <h2 className="font-bold text-gray-900">Paiements récents</h2>
-              <span className="text-xs text-gray-400">{recentPayments.length} derniers</span>
+              <div className="flex items-center gap-3 flex-wrap">
+                {retryResult && (
+                  <span className="text-xs text-gray-500 bg-gray-50 px-3 py-1 rounded-full">
+                    ✅ {retryResult.activated} activés · ⏭ {retryResult.already} déjà actifs · ❌ {retryResult.cancelled} annulés
+                  </span>
+                )}
+                <button
+                  onClick={retryStripePayments}
+                  disabled={retryLoading}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-full bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {retryLoading ? '⏳ Vérification…' : '🔄 Régulariser Stripe'}
+                </button>
+                <span className="text-xs text-gray-400">{recentPayments.length} derniers</span>
+              </div>
             </div>
             {recentPayments.length === 0 ? (
               <div className="py-12 text-center text-gray-400 text-sm">Aucun paiement enregistré</div>
