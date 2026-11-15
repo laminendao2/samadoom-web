@@ -15,7 +15,7 @@ const WITHDRAW_MODE_MAP: Record<string, string> = {
   'free-money':   'free-money-senegal',
 };
 
-const MIN_WITHDRAW = 250; // FCFA (test: 250, prod: 2000)
+const MIN_WITHDRAW = 2000; // FCFA
 const MAX_WITHDRAW = 500000; // FCFA par retrait
 
 export async function POST(req: NextRequest) {
