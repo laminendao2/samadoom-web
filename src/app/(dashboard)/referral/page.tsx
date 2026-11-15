@@ -318,34 +318,9 @@ export default function ReferralPage() {
             ))}
           </div>
 
-          {/* Comment ça marche */}
-          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 20, padding: 24 }}>
-            <h3 style={{ fontWeight: 800, color: '#92400e', marginBottom: 16, fontSize: 15 }}>
-              💡 Comment ça marche
-            </h3>
-            {[
-              { step: '1', text: 'Partagez votre code ou lien à vos élèves, parents ou amis' },
-              { step: '2', text: 'Ils arrivent sur la page abonnement avec -5% appliqué automatiquement' },
-              { step: '3', text: 'Dès qu\'ils paient, vous recevez 10% du montant payé sur votre solde' },
-              { step: '4', text: 'La commission s\'accumule à chaque renouvellement' },
-            ].map(item => (
-              <div key={item.step} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
-                <span style={{
-                  width: 24, height: 24, borderRadius: '50%',
-                  background: '#166534', color: 'white',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 12, fontWeight: 700, flexShrink: 0,
-                }}>
-                  {item.step}
-                </span>
-                <p style={{ fontSize: 13, color: '#78350f', margin: 0, lineHeight: 1.5 }}>{item.text}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Retrait */}
+          {/* Retrait — juste après les stats */}
           {referral.balance >= 250 && (
-            <div style={{ marginTop: 20 }}>
+            <div style={{ marginBottom: 20 }}>
               {!showWithdraw ? (
                 <button
                   onClick={() => { setShowWithdraw(true); setWithdrawStatus('idle'); setWithdrawMsg(''); }}
@@ -478,6 +453,31 @@ export default function ReferralPage() {
               )}
             </div>
           )}
+
+          {/* Comment ça marche */}
+          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 20, padding: 24 }}>
+            <h3 style={{ fontWeight: 800, color: '#92400e', marginBottom: 16, fontSize: 15 }}>
+              💡 Comment ça marche
+            </h3>
+            {[
+              { step: '1', text: 'Partagez votre code ou lien à vos élèves, parents ou amis' },
+              { step: '2', text: 'Ils arrivent sur la page abonnement avec -5% appliqué automatiquement' },
+              { step: '3', text: 'Dès qu\'ils paient, vous recevez 10% du montant payé sur votre solde' },
+              { step: '4', text: 'La commission s\'accumule à chaque renouvellement' },
+            ].map(item => (
+              <div key={item.step} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
+                <span style={{
+                  width: 24, height: 24, borderRadius: '50%',
+                  background: '#166534', color: 'white',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 12, fontWeight: 700, flexShrink: 0,
+                }}>
+                  {item.step}
+                </span>
+                <p style={{ fontSize: 13, color: '#78350f', margin: 0, lineHeight: 1.5 }}>{item.text}</p>
+              </div>
+            ))}
+          </div>
 
           {referral.balance > 0 && referral.balance < 250 && (
             <div style={{ marginTop: 16, padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12 }}>
