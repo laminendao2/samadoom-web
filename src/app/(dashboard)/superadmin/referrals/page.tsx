@@ -83,6 +83,8 @@ export default function SuperAdminReferralsPage() {
       setTotals(data.totals);
     } catch {
       setError('Erreur réseau');
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -107,24 +109,8 @@ export default function SuperAdminReferralsPage() {
   }
 
   useEffect(() => {
-    if (!user) return;
-    (async () => {
-      try {
-        const idToken = await user.getIdToken();
-        const res = await fetch('/api/superadmin/referrals', {
-          headers: { Authorization: `Bearer ${idToken}` },
-        });
-        const data = await res.json();
-        if (!res.ok) { setError(data.error || 'Erreur'); return; }
-        setCodes(data.codes);
-        setEarnings(data.earnings);
-        setTotals(data.totals);
-      } catch {
-        setError('Erreur réseau');
-      } finally {
-        setLoading(false);
-      }
-    })();
+    loadData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   if (loading) return <div style={{ padding: 32, color: '#6b7280', textAlign: 'center' }}>Chargement…</div>;
