@@ -166,8 +166,13 @@ export async function finalizePaidPayment(
     if (hasReferral && codeRef && codeSnap?.exists
         && codeSnap.data()?.userId === payment.referrerId
         && referrerValidated) {
-      // Pour Stripe (USD cents) convertir en entier cohérent ; pour PayDunya laisser tel quel
-      const commission = Math.round(payment.amount * REFERRAL_COMMISSION);
+      // Normaliser le montant en FCFA pour la commission (base commune)
+      // Stripe stocke en centimes USD → $1 ≈ 600 FCFA (taux fixe CFA/USD)
+      const USD_TO_XOF = 600;
+      const amountInXof = (payment.currency ?? 'XOF').toUpperCase() === 'USD'
+        ? Math.round((payment.amount / 100) * USD_TO_XOF)
+        : payment.amount;
+      const commission = Math.round(amountInXof * REFERRAL_COMMISSION);
       // Id déterministe : un paiement ne peut créer qu'une seule ligne de gain
       tx.set(adminDb.collection('referralEarnings').doc(`pay_${paymentId}`), {
         referrerId: payment.referrerId,
@@ -175,9 +180,10 @@ export async function finalizePaidPayment(
         referredEmail: payment.userEmail ?? '',
         referralCode: payment.referralCode,
         plan: payment.plan,
-        amountPaid: payment.amount,
-        commission,
-        currency: payment.currency ?? 'XOF',
+        amountPaid: amountInXof,       // toujours en XOF pour l'affichage cohérent
+        amountPaidOriginal: payment.amount, // montant brut dans la devise d'origine
+        commission,                    // en XOF
+        currency: 'XOF',               // normalisé en XOF
         provider: payment.provider ?? 'paydunya',
         paymentToken: paymentId,
         status: 'confirmed',
