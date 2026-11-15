@@ -91,6 +91,24 @@ function AbonnementContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, profile?.isPro]);
 
+  // Si l'utilisateur revient depuis PayDunya après avoir annulé,
+  // on marque le paiement comme annulé dans Firestore (via le token stocké).
+  useEffect(() => {
+    const isCancelled = searchParams.get('status') === 'cancel';
+    if (!isCancelled) return;
+    const token = sessionStorage.getItem('paydunya_pending_token');
+    if (!token || !user) return;
+    sessionStorage.removeItem('paydunya_pending_token');
+    user.getIdToken().then(idToken => {
+      fetch('/api/paydunya/cancel-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ token }),
+      }).catch(() => { /* silencieux */ });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, user]);
+
   const validateCode = async (code: string) => {
     if (!code.trim()) {
       setReferralInfo(null);
