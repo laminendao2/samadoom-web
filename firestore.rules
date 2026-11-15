@@ -343,8 +343,15 @@ service cloud.firestore {
     match /referralCodes/{code} {
       // Lecture pour valider un code (côté client)
       allow read: if isAuth();
-      // Écriture uniquement via Admin SDK (serveur)
-      allow write: if false;
+      // L'utilisateur authentifié peut créer son propre code parrain
+      // (solde, gains et usages forcément à 0 — seul le serveur peut les modifier ensuite)
+      allow create: if isAuth()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.get('balance', 0) == 0
+        && request.resource.data.get('totalEarned', 0) == 0
+        && request.resource.data.get('usageCount', 0) == 0;
+      // Mise à jour et suppression réservées au serveur (Admin SDK)
+      allow update, delete: if false;
     }
     match /referralEarnings/{docId} {
       // L'utilisateur voit ses propres gains

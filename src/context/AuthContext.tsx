@@ -23,6 +23,8 @@ export interface UserProfile {
   planCancelledAt?: string | null;
   cancelAtPeriodEnd?: boolean;
   savedReferralCode?: string | null;
+  phone?: string | null;
+  phoneCountry?: string | null;
 }
 
 interface AuthContextValue {
@@ -94,6 +96,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             planCancelledAt: data.planCancelledAt || null,
             cancelAtPeriodEnd: data.cancelAtPeriodEnd || false,
             savedReferralCode: data.savedReferralCode || null,
+            phone: data.phone || null,
+            phoneCountry: data.phoneCountry || '+221',
           } as UserProfile);
         }
       } else {

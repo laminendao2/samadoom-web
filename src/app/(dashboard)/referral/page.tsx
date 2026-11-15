@@ -21,7 +21,6 @@ export default function ReferralPage() {
   const [copiedLink, setCopiedLink] = useState(false);
   const [error, setError] = useState('');
   const [showWithdraw, setShowWithdraw] = useState(false);
-  const [withdrawPhone, setWithdrawPhone] = useState('');
   const [withdrawOperator, setWithdrawOperator] = useState('orange-money');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawStatus, setWithdrawStatus] = useState<WithdrawStatus>('idle');
@@ -118,14 +117,13 @@ export default function ReferralPage() {
       const res = await fetch('/api/referral/withdraw', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ amount, phone: withdrawPhone, operator: withdrawOperator }),
+        body: JSON.stringify({ amount, operator: withdrawOperator }),
       });
       const data = await res.json();
       if (data.success) {
         setWithdrawStatus('success');
         setWithdrawMsg(`✅ ${data.message} — vous recevrez un SMS de confirmation.`);
         setWithdrawAmount('');
-        setWithdrawPhone('');
         // Actualiser le solde
         await fetchReferral();
       } else {
@@ -362,21 +360,43 @@ export default function ReferralPage() {
                     </div>
                   </div>
 
-                  {/* Numéro */}
+                  {/* Numéro — verrouillé depuis le profil */}
                   <div style={{ marginBottom: 16 }}>
-                    <p style={{ fontSize: 13, color: '#374151', fontWeight: 600, marginBottom: 8 }}>Numéro de téléphone</p>
-                    <input
-                      type="tel"
-                      placeholder="77 123 45 67"
-                      value={withdrawPhone}
-                      onChange={e => setWithdrawPhone(e.target.value)}
-                      style={{
-                        width: '100%', padding: '12px 14px', borderRadius: 10,
-                        border: '1px solid #d1d5db', fontSize: 15, outline: 'none',
-                        boxSizing: 'border-box',
-                      }}
-                    />
-                    <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>Sans indicatif pays (+221)</p>
+                    <p style={{ fontSize: 13, color: '#374151', fontWeight: 600, marginBottom: 8 }}>
+                      📱 Numéro de réception
+                    </p>
+                    {profile?.phone ? (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '12px 14px', borderRadius: 10,
+                        border: '1px solid #bbf7d0', background: '#f0fdf4',
+                      }}>
+                        <span style={{ fontSize: 15, fontWeight: 700, color: '#166534', fontFamily: 'monospace', letterSpacing: 1 }}>
+                          {profile.phoneCountry || '+221'} {profile.phone}
+                        </span>
+                        <span style={{ fontSize: 11, color: '#16a34a', marginLeft: 'auto' }}>🔒 Vérifié</span>
+                      </div>
+                    ) : (
+                      <div style={{
+                        padding: '12px 14px', borderRadius: 10,
+                        border: '1px solid #fde68a', background: '#fffbeb',
+                      }}>
+                        <p style={{ fontSize: 13, color: '#92400e', margin: '0 0 8px' }}>
+                          ⚠️ Aucun numéro enregistré dans votre profil.
+                        </p>
+                        <a href="/profile" style={{
+                          display: 'inline-block', padding: '8px 16px',
+                          background: '#166534', color: 'white',
+                          borderRadius: 8, fontWeight: 700, fontSize: 13,
+                          textDecoration: 'none',
+                        }}>
+                          → Ajouter dans mon profil
+                        </a>
+                      </div>
+                    )}
+                    <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                      Le virement sera envoyé sur ce numéro. Pour le modifier : <a href="/profile" style={{ color: '#166534' }}>Mon profil</a>
+                    </p>
                   </div>
 
                   {/* Montant */}
@@ -436,17 +456,18 @@ export default function ReferralPage() {
 
                   <button
                     onClick={handleWithdraw}
-                    disabled={withdrawStatus === 'loading' || withdrawStatus === 'success'}
+                    disabled={withdrawStatus === 'loading' || withdrawStatus === 'success' || !profile?.phone}
                     style={{
                       width: '100%', padding: '14px 0',
                       background: withdrawStatus === 'success' ? '#15803d' : 'linear-gradient(135deg, #166534 0%, #15803d 100%)',
                       color: 'white', border: 'none', borderRadius: 12,
                       fontWeight: 700, fontSize: 15,
-                      cursor: withdrawStatus === 'loading' || withdrawStatus === 'success' ? 'not-allowed' : 'pointer',
-                      opacity: withdrawStatus === 'loading' ? 0.7 : 1,
+                      cursor: (withdrawStatus === 'loading' || withdrawStatus === 'success' || !profile?.phone) ? 'not-allowed' : 'pointer',
+                      opacity: (withdrawStatus === 'loading' || !profile?.phone) ? 0.5 : 1,
                     }}>
                     {withdrawStatus === 'loading' ? 'Traitement en cours…' :
                      withdrawStatus === 'success' ? '✅ Retrait envoyé' :
+                     !profile?.phone ? '📱 Ajoutez votre numéro dans le profil' :
                      'Confirmer le retrait'}
                   </button>
                 </div>
