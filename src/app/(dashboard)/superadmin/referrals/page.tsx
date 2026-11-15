@@ -66,6 +66,45 @@ export default function SuperAdminReferralsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'profs' | 'transactions'>('profs');
+  const [fixLoading, setFixLoading] = useState(false);
+  const [fixResult, setFixResult] = useState<{ earningsFixed: number; codesUpdated: number } | null>(null);
+
+  async function loadData() {
+    if (!user) return;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/superadmin/referrals', {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Erreur'); return; }
+      setCodes(data.codes);
+      setEarnings(data.earnings);
+      setTotals(data.totals);
+    } catch {
+      setError('Erreur réseau');
+    }
+  }
+
+  async function fixBalances() {
+    if (!user) return;
+    setFixLoading(true);
+    setFixResult(null);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/admin/fix-referral-balances', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      setFixResult({ earningsFixed: data.earningsFixed, codesUpdated: data.codesUpdated });
+      await loadData(); // recharger les données corrigées
+    } catch {
+      setFixResult({ earningsFixed: -1, codesUpdated: -1 });
+    } finally {
+      setFixLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!user) return;
@@ -94,12 +133,36 @@ export default function SuperAdminReferralsPage() {
   return (
     <div style={{ padding: '32px 24px', maxWidth: 960, margin: '0 auto' }}>
       {/* En-tête */}
-      <h1 style={{ fontSize: 24, fontWeight: 900, color: '#111827', marginBottom: 4 }}>
-        🤝 Parrainage — Vue SuperAdmin
-      </h1>
-      <p style={{ color: '#6b7280', fontSize: 14, marginBottom: 28 }}>
-        Suivi des commissions professeurs et réductions acheteurs.
-      </p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 28 }}>
+        <div>
+          <h1 style={{ fontSize: 24, fontWeight: 900, color: '#111827', marginBottom: 4 }}>
+            🤝 Parrainage — Vue SuperAdmin
+          </h1>
+          <p style={{ color: '#6b7280', fontSize: 14, margin: 0 }}>
+            Suivi des commissions professeurs et réductions acheteurs.
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {fixResult && (
+            <span style={{ fontSize: 12, color: '#374151', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '6px 12px', borderRadius: 8 }}>
+              {fixResult.earningsFixed === -1
+                ? '⚠️ Erreur lors de la correction'
+                : `✅ ${fixResult.earningsFixed} gains corrigés · ${fixResult.codesUpdated} balances recalculées`}
+            </span>
+          )}
+          <button
+            onClick={fixBalances}
+            disabled={fixLoading}
+            style={{
+              fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 10,
+              background: fixLoading ? '#e5e7eb' : '#7c3aed', color: fixLoading ? '#9ca3af' : 'white',
+              border: 'none', cursor: fixLoading ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            {fixLoading ? '⏳ Recalcul…' : '🔧 Recalculer balances USD→FCFA'}
+          </button>
+        </div>
+      </div>
 
       {/* Cartes totaux */}
       {totals && (
