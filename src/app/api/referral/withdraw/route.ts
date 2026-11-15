@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
         account_alias: cleanPhone,
         amount: amount,
         withdraw_mode: withdrawMode,
-        callback_url: `${process.env.NEXT_PUBLIC_SITE_URL}/api/paydunya/disburse-callback`,
+        callback_url: `${process.env.NEXT_PUBLIC_SITE_URL}/api/paydunya/callback`,
       }),
     });
     const getInvoiceData = await getInvoiceRes.json();
