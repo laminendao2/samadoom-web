@@ -10,7 +10,10 @@ export async function verifyRequestUser(req: NextRequest): Promise<DecodedIdToke
   if (!idToken) return null;
   try {
     return await adminAuth.verifyIdToken(idToken);
-  } catch {
+  } catch (err: unknown) {
+    const code = (err as { code?: string })?.code ?? 'unknown';
+    const message = (err as { message?: string })?.message ?? String(err);
+    console.error(`[server-auth] verifyIdToken failed — code: ${code} | ${message}`);
     return null;
   }
 }
