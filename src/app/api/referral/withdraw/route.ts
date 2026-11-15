@@ -33,17 +33,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Token invalide' }, { status: 401 });
     }
 
-    const { amount, phone, operator } = await req.json();
+    const { amount, operator } = await req.json();
 
-    // 2. Validation
-    if (!amount || !phone || !operator) {
-      return NextResponse.json({ error: 'Champs manquants (amount, phone, operator)' }, { status: 400 });
+    // 2. Validation montant et opérateur
+    if (!amount || !operator) {
+      return NextResponse.json({ error: 'Champs manquants (amount, operator)' }, { status: 400 });
     }
     // Le montant doit être un entier : une chaîne ou un décimal fausserait le solde
     if (typeof amount !== 'number' || !Number.isInteger(amount) || amount > MAX_WITHDRAW) {
       return NextResponse.json({ error: 'Montant invalide' }, { status: 400 });
     }
-    if (typeof phone !== 'string' || typeof operator !== 'string') {
+    if (typeof operator !== 'string') {
       return NextResponse.json({ error: 'Champs invalides' }, { status: 400 });
     }
     if (amount < MIN_WITHDRAW) {
@@ -55,12 +55,23 @@ export async function POST(req: NextRequest) {
     if (!withdrawMode) {
       return NextResponse.json({ error: 'Operateur non supporte' }, { status: 400 });
     }
-    const cleanPhone = phone.replace(/\s+/g, '').replace(/^(\+221|00221)/, '');
-    if (!/^\d{9}$/.test(cleanPhone)) {
-      return NextResponse.json({ error: 'Numero invalide (9 chiffres sans indicatif)' }, { status: 400 });
+
+    // 3a. Lire le numéro depuis le profil Firestore (sécurité : ne pas accepter le numéro du body)
+    const userDoc = await adminDb.collection('users').doc(uid).get();
+    const userData = userDoc.data();
+    const rawPhone: string = userData?.phone || '';
+    if (!rawPhone) {
+      return NextResponse.json({
+        error: 'Aucun numéro Mobile Money enregistré. Veuillez l\'ajouter dans votre profil avant de retirer.',
+        missingPhone: true,
+      }, { status: 400 });
+    }
+    const cleanPhone = rawPhone.replace(/\s+/g, '').replace(/^(\+\d{1,3}|00\d{1,3})/, '');
+    if (!/^\d{7,10}$/.test(cleanPhone)) {
+      return NextResponse.json({ error: 'Numéro enregistré invalide. Mettez à jour votre profil.' }, { status: 400 });
     }
 
-    // 3. Code de parrainage
+    // 3b. Code de parrainage
     const codesSnap = await adminDb.collection('referralCodes')
       .where('userId', '==', uid).limit(1).get();
     if (codesSnap.empty) {
