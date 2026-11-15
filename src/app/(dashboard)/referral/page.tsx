@@ -106,8 +106,8 @@ export default function ReferralPage() {
   const handleWithdraw = async () => {
     if (!user) return;
     const amount = parseInt(withdrawAmount, 10);
-    if (!amount || amount < 2000) {
-      setWithdrawMsg('Montant minimum : 2 000 FCFA');
+    if (!amount || amount < 250) {
+      setWithdrawMsg('Montant minimum : 250 FCFA');
       setWithdrawStatus('error');
       return;
     }
@@ -344,7 +344,7 @@ export default function ReferralPage() {
           </div>
 
           {/* Retrait */}
-          {referral.balance >= 2000 && (
+          {referral.balance >= 250 && (
             <div style={{ marginTop: 20 }}>
               {!showWithdraw ? (
                 <button
@@ -407,10 +407,10 @@ export default function ReferralPage() {
                   {/* Montant */}
                   <div style={{ marginBottom: 20 }}>
                     <p style={{ fontSize: 13, color: '#374151', fontWeight: 600, marginBottom: 8 }}>
-                      Montant (min 2 000 FCFA, max {referral.balance.toLocaleString('fr-FR')} FCFA)
+                      Montant (min 250 FCFA, max {referral.balance.toLocaleString('fr-FR')} FCFA)
                     </p>
                     <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                      {[2000, 5000, 10000].filter(v => v <= referral.balance).map(v => (
+                      {[250, 500, 1000].filter(v => v <= referral.balance).map(v => (
                         <button key={v} onClick={() => setWithdrawAmount(String(v))}
                           style={{
                             flex: 1, padding: '8px 0', borderRadius: 8,
@@ -436,7 +436,7 @@ export default function ReferralPage() {
                       placeholder="Montant en FCFA"
                       value={withdrawAmount}
                       onChange={e => setWithdrawAmount(e.target.value)}
-                      min={2000}
+                      min={250}
                       max={referral.balance}
                       style={{
                         width: '100%', padding: '12px 14px', borderRadius: 10,
@@ -479,11 +479,11 @@ export default function ReferralPage() {
             </div>
           )}
 
-          {referral.balance > 0 && referral.balance < 2000 && (
+          {referral.balance > 0 && referral.balance < 250 && (
             <div style={{ marginTop: 16, padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12 }}>
               <p style={{ fontSize: 13, color: '#92400e', margin: 0 }}>
                 💰 Solde : <strong>{referral.balance.toLocaleString('fr-FR')} FCFA</strong> —
-                minimum 2 000 FCFA requis pour retirer.
+                minimum 250 FCFA requis pour retirer.
               </p>
             </div>
           )}
