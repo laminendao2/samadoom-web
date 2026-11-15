@@ -23,111 +23,111 @@ export async function GET(req: NextRequest) {
 
     const userCode = codesSnap.docs[0].data().code ?? codesSnap.docs[0].id;
 
-    // 2. Source A : referralEarnings (avec commission)
-    const earningsSnap = await adminDb
-      .collection('referralEarnings')
-      .where('referralCode', '==', userCode)
-      .limit(100)
-      .get();
-
-    // 3. Source B : payments avec ce code (fallback si referralEarnings vide)
-    const paymentsSnap = await adminDb
-      .collection('payments')
-      .where('referralCode', '==', userCode)
-      .where('status', '==', 'completed')
-      .limit(100)
-      .get();
-
-    // Fusionner les deux sources — dédupliquer par userId+plan+date
+    // Map userId → { userEmail, userName, plan, completedAt, commission, commissionPaid }
     const referredMap: Record<string, {
-      paymentToken: string;
       userEmail: string;
-      userId: string;
       userName: string;
       plan: string;
-      amount: number;
-      currency: string;
       completedAt: string;
       commission: number;
       commissionPaid: boolean;
     }> = {};
 
-    // Source B d'abord (payments)
-    paymentsSnap.forEach(doc => {
+    // Source A : users ayant savedReferralCode == userCode (source la plus fiable)
+    const usersWithCodeSnap = await adminDb
+      .collection('users')
+      .where('savedReferralCode', '==', userCode)
+      .limit(200)
+      .get();
+
+    usersWithCodeSnap.forEach(doc => {
       const d = doc.data();
       referredMap[doc.id] = {
-        paymentToken: doc.id,
+        userEmail: d.email ?? '',
+        userName: d.name ?? '',
+        plan: d.plan ?? '',
+        completedAt: d.planActivatedAt ?? d.createdAt ?? '',
+        commission: 0,
+        commissionPaid: false,
+      };
+    });
+
+    // Source B : referralEarnings (ajoute les commissions)
+    const earningsSnap = await adminDb
+      .collection('referralEarnings')
+      .where('referralCode', '==', userCode)
+      .limit(200)
+      .get();
+
+    earningsSnap.forEach(doc => {
+      const d = doc.data();
+      const userId = d.referredId ?? '';
+      if (!userId) return;
+      const existing = referredMap[userId];
+      if (existing) {
+        existing.commission = (existing.commission ?? 0) + (d.commission ?? 0);
+        existing.commissionPaid = true;
+        if (!existing.plan) existing.plan = d.plan ?? '';
+        if (!existing.completedAt) existing.completedAt = d.createdAt ?? '';
+        if (!existing.userEmail) existing.userEmail = d.referredEmail ?? '';
+      } else {
+        referredMap[userId] = {
+          userEmail: d.referredEmail ?? '',
+          userName: '',
+          plan: d.plan ?? '',
+          completedAt: d.createdAt ?? '',
+          commission: d.commission ?? 0,
+          commissionPaid: true,
+        };
+      }
+    });
+
+    // Source C : payments complétés avec ce code (fallback)
+    const paymentsSnap = await adminDb
+      .collection('payments')
+      .where('referralCode', '==', userCode)
+      .where('status', '==', 'completed')
+      .limit(200)
+      .get();
+
+    paymentsSnap.forEach(doc => {
+      const d = doc.data();
+      const userId = d.userId ?? '';
+      if (!userId || referredMap[userId]) return; // déjà connu
+      referredMap[userId] = {
         userEmail: d.userEmail ?? '',
-        userId: d.userId ?? '',
         userName: '',
         plan: d.plan ?? '',
-        amount: d.amount ?? 0,
-        currency: d.currency ?? 'XOF',
         completedAt: d.completedAt ?? d.createdAt ?? '',
         commission: 0,
         commissionPaid: false,
       };
     });
 
-    // Source A enrichit (referralEarnings)
-    earningsSnap.forEach(doc => {
-      const d = doc.data();
-      const token = d.paymentToken ?? doc.id.replace(/^pay_/, '');
-      const existing = referredMap[token];
-      referredMap[token] = {
-        paymentToken: token,
-        userEmail: d.referredEmail ?? existing?.userEmail ?? '',
-        userId: d.referredId ?? existing?.userId ?? '',
-        userName: existing?.userName ?? '',
-        plan: d.plan ?? existing?.plan ?? '',
-        amount: d.amountPaid ?? existing?.amount ?? 0,
-        currency: d.currency ?? existing?.currency ?? 'XOF',
-        completedAt: d.createdAt ?? existing?.completedAt ?? '',
-        commission: d.commission ?? 0,
-        commissionPaid: true,
-      };
-    });
+    // Remplir les noms manquants depuis users
+    const missingNameIds = Object.entries(referredMap)
+      .filter(([, v]) => !v.userName)
+      .map(([id]) => id);
 
-    // 4. Récupérer les noms
-    const userIds = [...new Set(
-      Object.values(referredMap).map(r => r.userId).filter(Boolean) as string[]
-    )];
-    if (userIds.length > 0) {
-      for (let i = 0; i < userIds.length; i += 30) {
-        const chunk = userIds.slice(i, i + 30);
-        const usersSnap = await adminDb.collection('users').where('__name__', 'in', chunk).get();
-        usersSnap.forEach(doc => {
-          const name = doc.data().name ?? '';
-          Object.values(referredMap).forEach(r => {
-            if (r.userId === doc.id) r.userName = name;
-          });
+    if (missingNameIds.length > 0) {
+      for (let i = 0; i < missingNameIds.length; i += 30) {
+        const chunk = missingNameIds.slice(i, i + 30);
+        const snap = await adminDb.collection('users').where('__name__', 'in', chunk).get();
+        snap.forEach(doc => {
+          const r = referredMap[doc.id];
+          if (r && !r.userName) {
+            r.userName = doc.data().name ?? '';
+            if (!r.userEmail) r.userEmail = doc.data().email ?? '';
+          }
         });
       }
     }
 
-    const referred = Object.values(referredMap)
+    const referred = Object.entries(referredMap)
+      .map(([userId, r]) => ({ userId, ...r }))
       .sort((a, b) => (b.completedAt > a.completedAt ? 1 : -1));
 
-    // Debug temporaire
-    // Chercher aussi par referrerId directement dans referralEarnings
-    const earningsByReferrer = await adminDb
-      .collection('referralEarnings')
-      .where('referrerId', '==', uid)
-      .limit(10)
-      .get();
-
-    const debug = {
-      userCode,
-      uid,
-      earningsCount: earningsSnap.size,
-      paymentsCount: paymentsSnap.size,
-      earningsByReferrerCount: earningsByReferrer.size,
-      sampleEarningByReferrer: earningsByReferrer.docs[0]?.data() ?? null,
-      sampleEarningByCode: earningsSnap.docs[0]?.data() ?? null,
-      samplePayment: paymentsSnap.docs[0]?.data() ?? null,
-    };
-
-    return NextResponse.json({ referred, debug });
+    return NextResponse.json({ referred });
   } catch (err) {
     console.error('Referral referred error:', err);
     return NextResponse.json({ error: String(err) }, { status: 500 });
