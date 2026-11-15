@@ -166,6 +166,8 @@ function AbonnementContent() {
       });
       const data = await res.json();
       if (data.checkoutUrl) {
+        // Stocker le token PayDunya avant la redirection pour l'activer au retour
+        if (data.token) sessionStorage.setItem('paydunya_pending_token', data.token);
         window.location.href = data.checkoutUrl;
       } else {
         setError(data.error || 'Erreur lors de la création du paiement');

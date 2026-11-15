@@ -9,7 +9,10 @@ function SuccessContent() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const plan = searchParams.get('plan') || 'mensuel';
-  const token = searchParams.get('token');
+  // PayDunya ne repasse pas le token dans l'URL de retour —
+  // on le récupère depuis sessionStorage où la page abonnement l'a stocké.
+  const tokenFromUrl = searchParams.get('token');
+  const token = tokenFromUrl || (typeof window !== 'undefined' ? sessionStorage.getItem('paydunya_pending_token') : null);
 
   const [verifyStatus, setVerifyStatus] = useState<'loading' | 'activated' | 'pending' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
@@ -44,6 +47,7 @@ function SuccessContent() {
         const data = await res.json();
 
         if (data.status === 'activated' || data.status === 'already_activated') {
+          sessionStorage.removeItem('paydunya_pending_token');
           setVerifyStatus('activated');
         } else if (data.status === 'pending') {
           setVerifyStatus('pending');
