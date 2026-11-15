@@ -12,13 +12,10 @@ interface ReferralData {
 }
 
 interface ReferredUser {
-  paymentToken: string;
-  userEmail: string;
   userId: string;
+  userEmail: string;
   userName: string;
   plan: string;
-  amount: number;
-  currency: string;
   completedAt: string;
   commission: number;
   commissionPaid: boolean;
@@ -578,7 +575,7 @@ export default function ReferralPage() {
                   })();
 
                   return (
-                    <div key={u.paymentToken} style={{
+                    <div key={u.userId} style={{
                       background: 'white',
                       border: '1px solid #e5e7eb',
                       borderRadius: 14,
@@ -613,18 +610,15 @@ export default function ReferralPage() {
                         </p>
                       </div>
 
-                      {/* Montant payé */}
+                      {/* Commission */}
                       <div style={{ textAlign: 'right' }}>
-                        <p style={{ margin: '0 0 2px', fontSize: 13, color: '#374151' }}>
-                          {u.amount.toLocaleString('fr-FR')} {u.currency}
-                        </p>
-                        {u.commissionPaid ? (
+                        {u.commissionPaid && u.commission > 0 ? (
                           <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#16a34a' }}>
-                            +{u.commission.toLocaleString('fr-FR')} FCFA commission
+                            +{u.commission.toLocaleString('fr-FR')} FCFA
                           </p>
                         ) : (
                           <p style={{ margin: 0, fontSize: 11, color: '#9ca3af' }}>
-                            Pas de commission ¹
+                            Abonné
                           </p>
                         )}
                       </div>
