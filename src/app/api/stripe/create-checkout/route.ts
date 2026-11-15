@@ -23,10 +23,10 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-10-28.endive',
 });
 
-// Prix en centimes USD
+// Prix en centimes USD — TEST (à remettre : mensuel 500, annuel 3900)
 const STRIPE_PRICES: Record<string, number> = {
-  mensuel: 500,  // $5.00
-  annuel: 3900,  // $39.00
+  mensuel: 100,  // $1.00 TEST
+  annuel: 100,   // $1.00 TEST
 };
 
 const REFERRAL_DISCOUNT = 0.05; // 5%
