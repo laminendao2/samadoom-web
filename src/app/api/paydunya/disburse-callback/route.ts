@@ -19,7 +19,8 @@ export async function POST(req: NextRequest) {
     const disburseToken: string = body?.disburse_token ?? body?.token ?? '';
 
     if (!disburseToken) {
-      return NextResponse.json({ error: 'Token manquant' }, { status: 400 });
+      // PayDunya peut envoyer un POST vide pour tester l'accessibilité
+      return NextResponse.json({ received: true });
     }
 
     // Trouver le retrait correspondant
