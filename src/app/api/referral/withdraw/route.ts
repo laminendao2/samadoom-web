@@ -126,8 +126,9 @@ export async function POST(req: NextRequest) {
 
     if (!getInvoiceData?.disburse_token) {
       const failReason = String(getInvoiceData?.response_text ?? getInvoiceData?.message ?? 'PayDunya error');
+      console.error('PayDunya get-invoice FULL response:', JSON.stringify(getInvoiceData));
       await settleWithdrawal(withdrawalRef.id, 'failed', { failReason });
-      return NextResponse.json({ error: 'Retrait refuse par PayDunya. Reessayez plus tard.' }, { status: 502 });
+      return NextResponse.json({ error: `PayDunya: ${failReason}` }, { status: 502 });
     }
 
     const disburseToken: string = getInvoiceData.disburse_token;
