@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { activatePaydunyaPayment, isValidPaydunyaHash, parsePaydunyaBody } from '@/lib/subscription';
 
 /**
+ * PayDunya vérifie l'accessibilité de l'URL IPN via GET avant de l'enregistrer.
+ * Sans ce handler, Next.js retourne 405 et PayDunya signale "callback inaccessible".
+ */
+export async function GET() {
+  return NextResponse.json({ ok: true });
+}
+
+/**
  * Webhook (IPN) PayDunya.
  * Le contenu de la requête n'est jamais cru : on n'en tire que le token de
  * facture, puis le paiement est confirmé directement auprès de l'API PayDunya
