@@ -4,7 +4,9 @@ import { verifyRequestUser } from '@/lib/server-auth';
 
 /**
  * GET /api/referral/referred
- * Retourne la liste des filleuls depuis referralEarnings (source de vérité du solde).
+ * Retourne la liste des filleuls depuis referralEarnings.
+ * Cherche par referralCode (depuis referralCodes/{code}.code) pour éviter
+ * les problèmes d'index sur referrerId.
  */
 export async function GET(req: NextRequest) {
   const authUser = await verifyRequestUser(req);
@@ -14,10 +16,24 @@ export async function GET(req: NextRequest) {
   const uid = authUser.uid;
 
   try {
-    // Requête simple sans orderBy (pas d'index composite nécessaire)
+    // 1. Trouver le code de parrainage de cet utilisateur
+    const codesSnap = await adminDb
+      .collection('referralCodes')
+      .where('userId', '==', uid)
+      .limit(1)
+      .get();
+
+    if (codesSnap.empty) {
+      return NextResponse.json({ referred: [] });
+    }
+
+    const codeDoc = codesSnap.docs[0];
+    const userCode = codeDoc.data().code ?? codeDoc.id;
+
+    // 2. Chercher les gains associés à ce code
     const earningsSnap = await adminDb
       .collection('referralEarnings')
-      .where('referrerId', '==', uid)
+      .where('referralCode', '==', userCode)
       .limit(100)
       .get();
 
@@ -25,7 +41,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ referred: [] });
     }
 
-    // Récupérer les noms des filleuls
+    // 3. Récupérer les noms des filleuls
     const userIds = [...new Set(
       earningsSnap.docs.map(d => d.data().referredId).filter(Boolean) as string[]
     )];
@@ -65,6 +81,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ referred });
   } catch (err) {
     console.error('Referral referred error:', err);
-    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
+    return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }
