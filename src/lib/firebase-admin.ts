@@ -12,13 +12,21 @@ if (!getApps().length) {
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 
+  // Diagnostic — ne logue JAMAIS la clé privée elle-même
+  console.log('[firebase-admin] Init — projectId:', projectId, '| clientEmail:', clientEmail ? clientEmail.slice(0,20)+'…' : 'MANQUANT', '| privateKey début:', privateKey.slice(0, 27), '| longueur:', privateKey.length);
+
   if (!projectId || !clientEmail || !privateKey) {
     console.error('[firebase-admin] Variables manquantes:', { projectId: !!projectId, clientEmail: !!clientEmail, privateKey: !!privateKey });
   }
 
-  initializeApp({
-    credential: cert({ projectId, clientEmail, privateKey }),
-  });
+  try {
+    initializeApp({
+      credential: cert({ projectId, clientEmail, privateKey }),
+    });
+    console.log('[firebase-admin] initializeApp OK');
+  } catch (initErr: unknown) {
+    console.error('[firebase-admin] initializeApp ÉCHEC:', String(initErr));
+  }
 }
 
 export const adminDb = getFirestore();
