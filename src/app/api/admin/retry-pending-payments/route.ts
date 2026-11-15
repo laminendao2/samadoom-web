@@ -29,6 +29,10 @@ export async function POST(req: NextRequest) {
     const token = doc.id;
     try {
       const outcome = await activatePaydunyaPayment(token);
+      // Marquer les paiements non payés comme annulés pour nettoyer la liste
+      if (outcome.result === 'not_paid') {
+        await doc.ref.update({ status: 'cancelled' });
+      }
       results.push({ token, result: outcome.result });
     } catch (err) {
       results.push({ token, result: `error: ${String(err)}` });
