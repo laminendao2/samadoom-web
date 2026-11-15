@@ -11,11 +11,25 @@ interface ReferralData {
   referralUrl: string;
 }
 
+interface ReferredUser {
+  paymentToken: string;
+  userEmail: string;
+  userId: string;
+  plan: string;
+  amount: number;
+  currency: string;
+  completedAt: string;
+  commission: number;
+  commissionPaid: boolean;
+}
+
 type WithdrawStatus = 'idle' | 'loading' | 'success' | 'error';
 
 export default function ReferralPage() {
   const { user, profile } = useAuth();
   const [referral, setReferral] = useState<ReferralData | null>(null);
+  const [referredUsers, setReferredUsers] = useState<ReferredUser[]>([]);
+  const [loadingReferred, setLoadingReferred] = useState(false);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -36,6 +50,22 @@ export default function ReferralPage() {
       });
       const data = await res.json();
       setReferral(data.code ? data : null);
+
+      // Charger la liste des parrainés si un code existe
+      if (data.code) {
+        setLoadingReferred(true);
+        try {
+          const res2 = await fetch('/api/referral/referred', {
+            headers: { Authorization: `Bearer ${idToken}` },
+          });
+          const data2 = await res2.json();
+          setReferredUsers(data2.referred ?? []);
+        } catch {
+          // non-bloquant
+        } finally {
+          setLoadingReferred(false);
+        }
+      }
     } catch {
       setError('Erreur de chargement');
     } finally {
@@ -509,6 +539,99 @@ export default function ReferralPage() {
               </p>
             </div>
           )}
+
+          {/* Section parrainés */}
+          <div style={{ marginTop: 32 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 800, color: '#111827', marginBottom: 16 }}>
+              👥 Mes parrainés ({referredUsers.length})
+            </h2>
+
+            {loadingReferred ? (
+              <div style={{ textAlign: 'center', color: '#6b7280', padding: '24px 0', fontSize: 14 }}>
+                Chargement…
+              </div>
+            ) : referredUsers.length === 0 ? (
+              <div style={{
+                background: '#f9fafb', border: '1px dashed #d1d5db', borderRadius: 16,
+                padding: '32px 24px', textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>🎯</div>
+                <p style={{ color: '#6b7280', fontSize: 14, margin: 0 }}>
+                  Personne n&apos;a encore utilisé votre code.<br />
+                  Partagez-le pour commencer à gagner des commissions !
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {referredUsers.map((u) => {
+                  const date = u.completedAt
+                    ? new Date(u.completedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
+                    : '—';
+                  const planLabel = u.plan === 'annuel' ? '📅 Annuel' : u.plan === 'mensuel' ? '📆 Mensuel' : u.plan || '—';
+                  // Masquer partiellement l'email pour la confidentialité
+                  const maskedEmail = (() => {
+                    const [local, domain] = u.userEmail.split('@');
+                    if (!local || !domain) return u.userEmail;
+                    const visible = local.length > 2 ? local.slice(0, 2) : local[0];
+                    return `${visible}${'*'.repeat(Math.max(2, local.length - 2))}@${domain}`;
+                  })();
+
+                  return (
+                    <div key={u.paymentToken} style={{
+                      background: 'white',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 14,
+                      padding: '16px 18px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 14,
+                      flexWrap: 'wrap',
+                    }}>
+                      {/* Avatar */}
+                      <div style={{
+                        width: 40, height: 40, borderRadius: '50%',
+                        background: 'linear-gradient(135deg, #166534, #15803d)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: 'white', fontWeight: 700, fontSize: 15, flexShrink: 0,
+                      }}>
+                        {u.userEmail ? u.userEmail[0].toUpperCase() : '?'}
+                      </div>
+
+                      {/* Infos */}
+                      <div style={{ flex: 1, minWidth: 120 }}>
+                        <p style={{ margin: '0 0 2px', fontWeight: 700, fontSize: 14, color: '#111827' }}>
+                          {maskedEmail}
+                        </p>
+                        <p style={{ margin: 0, fontSize: 12, color: '#6b7280' }}>
+                          {planLabel} · {date}
+                        </p>
+                      </div>
+
+                      {/* Montant payé */}
+                      <div style={{ textAlign: 'right' }}>
+                        <p style={{ margin: '0 0 2px', fontSize: 13, color: '#374151' }}>
+                          {u.amount.toLocaleString('fr-FR')} {u.currency}
+                        </p>
+                        {u.commissionPaid ? (
+                          <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#16a34a' }}>
+                            +{u.commission.toLocaleString('fr-FR')} FCFA commission
+                          </p>
+                        ) : (
+                          <p style={{ margin: 0, fontSize: 11, color: '#9ca3af' }}>
+                            Pas de commission ¹
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                  ¹ La commission n&apos;est créditée que si vous êtes abonné Pro au moment où votre filleul paie.
+                </p>
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>
