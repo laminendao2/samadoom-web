@@ -17,10 +17,10 @@ export async function GET(req: NextRequest) {
 
   try {
     // 1. Chercher dans referralEarnings (filleuls avec commission confirmée)
+    // Pas de orderBy pour éviter un index composite — on trie côté JS
     const earningsSnap = await adminDb
       .collection('referralEarnings')
       .where('referrerId', '==', uid)
-      .orderBy('createdAt', 'desc')
       .limit(100)
       .get();
 
@@ -37,6 +37,7 @@ export async function GET(req: NextRequest) {
       paymentToken: string;
       userEmail: string;
       userId: string;
+      userName: string;
       plan: string;
       amount: number;
       currency: string;
@@ -53,6 +54,7 @@ export async function GET(req: NextRequest) {
         paymentToken: token,
         userEmail: d.userEmail ?? '',
         userId: d.userId ?? '',
+        userName: '',
         plan: d.plan ?? '',
         amount: d.amount ?? 0,
         currency: d.currency ?? 'XOF',
@@ -71,6 +73,7 @@ export async function GET(req: NextRequest) {
         paymentToken: token,
         userEmail: d.referredEmail ?? existing?.userEmail ?? '',
         userId: d.referredId ?? existing?.userId ?? '',
+        userName: existing?.userName ?? '',
         plan: d.plan ?? existing?.plan ?? '',
         amount: d.amountPaid ?? existing?.amount ?? 0,
         currency: d.currency ?? existing?.currency ?? 'XOF',
@@ -79,6 +82,25 @@ export async function GET(req: NextRequest) {
         commissionPaid: true,
       };
     });
+
+    // Récupérer les noms depuis users/{userId}
+    const userIds = [...new Set(Object.values(referredMap).map(r => r.userId).filter(Boolean))];
+    const namesMap: Record<string, string> = {};
+    // Firestore limite les `in` à 30
+    for (let i = 0; i < userIds.length; i += 30) {
+      const chunk = userIds.slice(i, i + 30);
+      const usersSnap = await adminDb
+        .collection('users')
+        .where('__name__', 'in', chunk)
+        .get();
+      usersSnap.forEach(doc => {
+        namesMap[doc.id] = doc.data().name ?? '';
+      });
+    }
+    // Injecter les noms
+    for (const entry of Object.values(referredMap)) {
+      entry.userName = namesMap[entry.userId] ?? '';
+    }
 
     // Trier par date décroissante
     const referred = Object.values(referredMap).sort((a, b) => {

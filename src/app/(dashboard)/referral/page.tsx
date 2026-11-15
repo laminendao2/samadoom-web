@@ -15,6 +15,7 @@ interface ReferredUser {
   paymentToken: string;
   userEmail: string;
   userId: string;
+  userName: string;
   plan: string;
   amount: number;
   currency: string;
@@ -594,14 +595,19 @@ export default function ReferralPage() {
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         color: 'white', fontWeight: 700, fontSize: 15, flexShrink: 0,
                       }}>
-                        {u.userEmail ? u.userEmail[0].toUpperCase() : '?'}
+                        {(u.userName || u.userEmail || '?')[0].toUpperCase()}
                       </div>
 
                       {/* Infos */}
                       <div style={{ flex: 1, minWidth: 120 }}>
                         <p style={{ margin: '0 0 2px', fontWeight: 700, fontSize: 14, color: '#111827' }}>
-                          {maskedEmail}
+                          {u.userName || maskedEmail}
                         </p>
+                        {u.userName && (
+                          <p style={{ margin: '0 0 2px', fontSize: 12, color: '#6b7280' }}>
+                            {maskedEmail}
+                          </p>
+                        )}
                         <p style={{ margin: 0, fontSize: 12, color: '#6b7280' }}>
                           {planLabel} · {date}
                         </p>
