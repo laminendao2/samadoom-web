@@ -4,7 +4,7 @@ import {
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   signInWithPopup, GoogleAuthProvider, signOut, User,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 
 export interface UserProfile {
@@ -54,58 +54,70 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
+    let unsubProfile: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, (u) => {
       setUser(u);
+
+      // Annuler l'écoute précédente si elle existe
+      if (unsubProfile) {
+        unsubProfile();
+        unsubProfile = null;
+      }
+
       if (u) {
-        const snap = await getDoc(doc(db, 'users', u.uid));
-        if (snap.exists()) {
-          const data = snap.data();
-          const subscriptionEnd = resolveSubscriptionEnd(data.subscriptionEnd);
+        // onSnapshot : mise à jour en temps réel (phone, isPro, etc.)
+        unsubProfile = onSnapshot(doc(db, 'users', u.uid), (snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            const subscriptionEnd = resolveSubscriptionEnd(data.subscriptionEnd);
 
-          // Calculer isPro : tenir compte de planExpiresAt et cancelAtPeriodEnd
-          let isPro = false;
-          if (data.isPro) {
-            if (data.planExpiresAt) {
-              const expiresAt = new Date(data.planExpiresAt);
-              isPro = expiresAt > new Date();
-              // Si expiré, mettre à jour Firestore en arrière-plan
-              if (!isPro && !data.cancelAtPeriodEnd) {
-                // Déjà expiré naturellement — ne rien faire ici
-              } else if (!isPro && data.cancelAtPeriodEnd) {
-                // Accès expiré après annulation programmée — on garde isPro=false
+            // Calculer isPro : tenir compte de planExpiresAt et cancelAtPeriodEnd
+            let isPro = false;
+            if (data.isPro) {
+              if (data.planExpiresAt) {
+                const expiresAt = new Date(data.planExpiresAt);
+                isPro = expiresAt > new Date();
+              } else {
+                // Pas de planExpiresAt → utiliser l'ancienne logique subscriptionEnd
+                isPro = subscriptionEnd ? subscriptionEnd > new Date() : data.isPro === true;
               }
-            } else {
-              // Pas de planExpiresAt → utiliser l'ancienne logique subscriptionEnd
-              isPro = subscriptionEnd ? subscriptionEnd > new Date() : data.isPro === true;
             }
-          }
 
-          setProfile({
-            uid: u.uid,
-            email: u.email || '',
-            name: data.name || '',
-            role: data.role || 'eleve',
-            roles: data.roles || [],
-            isPro,
-            subscriptionEnd,
-            ecoleId: data.ecoleId || null,
-            groupeId: data.groupeId || null,
-            photoURL: data.photoURL || u.photoURL || null,
-            plan: data.plan || null,
-            planExpiresAt: data.planExpiresAt || null,
-            planCancelledAt: data.planCancelledAt || null,
-            cancelAtPeriodEnd: data.cancelAtPeriodEnd || false,
-            savedReferralCode: data.savedReferralCode || null,
-            phone: data.phone || null,
-            phoneCountry: data.phoneCountry || '+221',
-          } as UserProfile);
-        }
+            setProfile({
+              uid: u.uid,
+              email: u.email || '',
+              name: data.name || '',
+              role: data.role || 'eleve',
+              roles: data.roles || [],
+              isPro,
+              subscriptionEnd,
+              ecoleId: data.ecoleId || null,
+              groupeId: data.groupeId || null,
+              photoURL: data.photoURL || u.photoURL || null,
+              plan: data.plan || null,
+              planExpiresAt: data.planExpiresAt || null,
+              planCancelledAt: data.planCancelledAt || null,
+              cancelAtPeriodEnd: data.cancelAtPeriodEnd || false,
+              savedReferralCode: data.savedReferralCode || null,
+              phone: data.phone || null,
+              phoneCountry: data.phoneCountry || '+221',
+            } as UserProfile);
+          }
+          setLoading(false);
+        }, () => {
+          setLoading(false);
+        });
       } else {
         setProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
-    return unsub;
+
+    return () => {
+      unsubAuth();
+      if (unsubProfile) unsubProfile();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
