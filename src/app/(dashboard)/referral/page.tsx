@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 
 interface ReferralData {
@@ -384,18 +385,18 @@ export default function ReferralPage() {
                         <p style={{ fontSize: 13, color: '#92400e', margin: '0 0 8px' }}>
                           ⚠️ Aucun numéro enregistré dans votre profil.
                         </p>
-                        <a href="/profile" style={{
+                        <Link href="/profile" style={{
                           display: 'inline-block', padding: '8px 16px',
                           background: '#166534', color: 'white',
                           borderRadius: 8, fontWeight: 700, fontSize: 13,
                           textDecoration: 'none',
                         }}>
                           → Ajouter dans mon profil
-                        </a>
+                        </Link>
                       </div>
                     )}
                     <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
-                      Le virement sera envoyé sur ce numéro. Pour le modifier : <a href="/profile" style={{ color: '#166534' }}>Mon profil</a>
+                      Le virement sera envoyé sur ce numéro. Pour le modifier : <Link href="/profile" style={{ color: '#166534' }}>Mon profil</Link>
                     </p>
                   </div>
 
