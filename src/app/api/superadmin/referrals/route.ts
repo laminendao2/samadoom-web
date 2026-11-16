@@ -51,12 +51,13 @@ export async function GET(req: NextRequest) {
       const d = doc.data();
       return {
         id: doc.id,
+        type: d.type ?? 'commission',
         referrerId: d.referrerId,
         referrerCode: d.referralCode,
-        referredEmail: d.referredEmail,
-        plan: d.plan,
-        amountPaid: d.amountPaid,
-        commission: d.commission,
+        referredEmail: d.referredEmail ?? null,
+        plan: d.plan ?? null,
+        amountPaid: d.amountPaid ?? null,
+        commission: d.commission ?? 0,
         currency: d.currency ?? 'XOF',
         provider: d.provider ?? 'paydunya',
         status: d.status,
