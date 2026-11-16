@@ -17,6 +17,7 @@ interface UserRow {
   planActivatedAt?: string;
   ecoleId?: string;
   createdAt?: Timestamp | string;
+  savedReferralCode?: string;   // code parrain utilisé lors d'un paiement
 }
 
 function tsToDate(ts: unknown): Date | null {
@@ -56,6 +57,8 @@ export default function SuperAdminUsersPage() {
   const { profile } = useAuth();
   const router = useRouter();
   const [users, setUsers] = useState<UserRow[]>([]);
+  // code parrain → nom du parrain
+  const [referrers, setReferrers] = useState<Record<string, string>>({});
   const [filtered, setFiltered] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -79,8 +82,18 @@ export default function SuperAdminUsersPage() {
 
   async function loadUsers() {
     setLoading(true);
-    const snap = await getDocs(collection(db, 'users'));
+    const [snap, codesSnap] = await Promise.all([
+      getDocs(collection(db, 'users')),
+      getDocs(collection(db, 'referralCodes')).catch(() => null), // le tableau reste utilisable sans les parrains
+    ]);
     const rows = snap.docs.map(d => ({ uid: d.id, ...d.data() }) as UserRow);
+    const byCode: Record<string, string> = {};
+    codesSnap?.docs.forEach(d => {
+      const c = d.data();
+      const owner = rows.find(r => r.uid === c.userId);
+      byCode[d.id] = c.userName || owner?.name || owner?.email || '';
+    });
+    setReferrers(byCode);
     setUsers(rows);
     setLoading(false);
   }
@@ -264,6 +277,11 @@ export default function SuperAdminUsersPage() {
                           <div>
                             <p className="font-semibold text-gray-900">{u.name || '—'}</p>
                             <p className="text-gray-400 text-xs">{u.email}</p>
+                            {u.savedReferralCode && (
+                              <p className="text-xs text-purple-700 mt-0.5">
+                                🤝 Parrainé par <span className="font-semibold">{referrers[u.savedReferralCode] || 'parrain inconnu'}</span> ({u.savedReferralCode})
+                              </p>
+                            )}
                           </div>
                         </div>
                       </td>
