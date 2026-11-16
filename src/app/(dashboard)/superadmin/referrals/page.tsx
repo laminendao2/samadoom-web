@@ -454,15 +454,17 @@ export default function SuperAdminReferralsPage() {
               </thead>
               <tbody>
                 {earnings.map((e, i) => {
+                  const isGift = (e as any).type === 'gift';
                   const cur = (e.currency ?? 'XOF').toUpperCase();
-                  const isLegacyCents = cur === 'USD' || cur === 'EUR'; // ancien format centimes bruts
-                  // Économie acheteur : 5% de réduction appliquée
-                  const original = Math.round(e.amountPaid / 0.95);
-                  const saving = original - e.amountPaid;
+                  const isLegacyCents = cur === 'USD' || cur === 'EUR';
+                  const original = e.amountPaid != null ? Math.round(e.amountPaid / 0.95) : 0;
+                  const saving = e.amountPaid != null ? original - e.amountPaid : 0;
                   return (
-                    <tr key={e.id} style={{ borderBottom: i < earnings.length - 1 ? '1px solid #f3f4f6' : 'none' }}>
+                    <tr key={e.id} style={{ borderBottom: i < earnings.length - 1 ? '1px solid #f3f4f6' : 'none', background: isGift ? '#fdf2f8' : undefined }}>
                       <td style={{ padding: '12px 14px', color: '#6b7280', fontSize: 12 }}>{fmtDate(e.createdAt)}</td>
-                      <td style={{ padding: '12px 14px', color: '#374151' }}>{e.referredEmail}</td>
+                      <td style={{ padding: '12px 14px', color: '#374151' }}>
+                        {isGift ? <span style={{ color: '#be185d', fontSize: 11, fontWeight: 600 }}>🤲 Don SuperAdmin</span> : e.referredEmail}
+                      </td>
                       <td style={{ padding: '12px 14px' }}>
                         <span style={{
                           fontFamily: 'monospace', fontWeight: 700, fontSize: 12,
@@ -471,25 +473,28 @@ export default function SuperAdminReferralsPage() {
                         }}>{e.referrerCode}</span>
                       </td>
                       <td style={{ padding: '12px 14px' }}>
-                        <span style={{
-                          fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 5,
-                          background: e.plan === 'annuel' ? '#eff6ff' : '#f5f3ff',
-                          color: e.plan === 'annuel' ? '#1d4ed8' : '#7c3aed',
-                        }}>
-                          {e.plan === 'annuel' ? 'Annuel' : e.plan === 'semaine' ? 'Hebdo' : 'Mensuel'}
-                        </span>
+                        {isGift ? (
+                          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 5, background: '#fdf2f8', color: '#be185d' }}>Don</span>
+                        ) : (
+                          <span style={{
+                            fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 5,
+                            background: e.plan === 'annuel' ? '#eff6ff' : '#f5f3ff',
+                            color: e.plan === 'annuel' ? '#1d4ed8' : '#7c3aed',
+                          }}>
+                            {e.plan === 'annuel' ? 'Annuel' : e.plan === 'semaine' ? 'Hebdo' : 'Mensuel'}
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: '12px 14px', fontWeight: 700, color: '#111827' }}>
-                        {fmtAmount(e.amountPaid, e.currency)}
-                        {isLegacyCents && <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 4 }}>{cur}</span>}
+                        {isGift ? '—' : (<>{fmtAmount(e.amountPaid, e.currency)}{isLegacyCents && <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 4 }}>{cur}</span>}</>)}
                       </td>
                       <td style={{ padding: '12px 14px', color: '#dc2626', fontWeight: 600 }}>
-                        -{fmtAmount(saving, e.currency)}
+                        {isGift ? '—' : `-${fmtAmount(saving, e.currency)}`}
                       </td>
                       <td style={{ padding: '12px 14px' }}>
                         <span style={{
-                          fontWeight: 700, color: '#166534',
-                          background: '#f0fdf4', padding: '3px 10px', borderRadius: 6, fontSize: 12,
+                          fontWeight: 700, color: isGift ? '#be185d' : '#166534',
+                          background: isGift ? '#fdf2f8' : '#f0fdf4', padding: '3px 10px', borderRadius: 6, fontSize: 12,
                         }}>+{fmtAmount(e.commission, e.currency)}</span>
                       </td>
                     </tr>
