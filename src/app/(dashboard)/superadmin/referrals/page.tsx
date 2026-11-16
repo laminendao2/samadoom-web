@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 
 interface ReferralCode {
@@ -90,6 +90,13 @@ export default function SuperAdminReferralsPage() {
   const [fixLoading, setFixLoading] = useState(false);
   const [fixResult, setFixResult] = useState<{ earningsFixed: number; codesUpdated: number } | null>(null);
 
+  // Don / bonus
+  const [giftCode, setGiftCode] = useState<string | null>(null);
+  const [giftAmount, setGiftAmount] = useState('');
+  const [giftNote, setGiftNote] = useState('');
+  const [giftLoading, setGiftLoading] = useState(false);
+  const [giftMsg, setGiftMsg] = useState('');
+
   async function loadData() {
     if (!user) return;
     try {
@@ -148,6 +155,32 @@ export default function SuperAdminReferralsPage() {
       setMissingError('Erreur réseau');
     } finally {
       setMissingLoading(false);
+    }
+  }
+
+  async function sendGift() {
+    if (!user || !giftCode) return;
+    const amt = parseInt(giftAmount, 10);
+    if (!amt || amt <= 0) { setGiftMsg('❌ Montant invalide'); return; }
+    setGiftLoading(true);
+    setGiftMsg('');
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/admin/gift-commission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ code: giftCode, amount: amt, note: giftNote || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setGiftMsg(`❌ ${data.error || 'Erreur'}`); return; }
+      setGiftMsg(`✅ ${fmt(amt)} FCFA crédités à ${data.userName}`);
+      setGiftAmount('');
+      setGiftNote('');
+      await loadData();
+    } catch {
+      setGiftMsg('❌ Erreur réseau');
+    } finally {
+      setGiftLoading(false);
     }
   }
 
@@ -297,14 +330,15 @@ export default function SuperAdminReferralsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                  {['Professeur', 'Code', 'Filleuls', 'Total gagné', 'Solde dû', 'Depuis'].map(h => (
+                  {['Professeur', 'Code', 'Filleuls', 'Total gagné', 'Solde dû', 'Depuis', ''].map(h => (
                     <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#374151', fontSize: 12 }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {codes.map((c, i) => (
-                  <tr key={c.code} style={{ borderBottom: i < codes.length - 1 ? '1px solid #f3f4f6' : 'none' }}>
+                  <React.Fragment key={c.code}>
+                  <tr style={{ borderBottom: i < codes.length - 1 && giftCode !== c.code ? '1px solid #f3f4f6' : 'none' }}>
                     <td style={{ padding: '12px 16px' }}>
                       <p style={{ fontWeight: 700, color: '#111827', margin: 0 }}>{c.userName}</p>
                       <p style={{ fontSize: 11, color: '#9ca3af', margin: 0 }}>{c.userEmail}</p>
@@ -329,7 +363,70 @@ export default function SuperAdminReferralsPage() {
                       </span>
                     </td>
                     <td style={{ padding: '12px 16px', color: '#9ca3af', fontSize: 12 }}>{fmtDate(c.createdAt)}</td>
+                    <td style={{ padding: '8px 16px' }}>
+                      <button
+                        onClick={() => { setGiftCode(giftCode === c.code ? null : c.code); setGiftMsg(''); setGiftAmount(''); setGiftNote(''); }}
+                        style={{
+                          background: giftCode === c.code ? '#fef3c7' : '#f9fafb',
+                          border: `1px solid ${giftCode === c.code ? '#f59e0b' : '#e5e7eb'}`,
+                          borderRadius: 8, padding: '4px 10px', cursor: 'pointer',
+                          fontSize: 13, fontWeight: 600, color: '#92400e',
+                        }}
+                      >🎁 Don</button>
+                    </td>
                   </tr>
+                  {/* Panel don inline */}
+                  {giftCode === c.code && (
+                    <tr style={{ background: '#fffbeb' }}>
+                      <td colSpan={7} style={{ padding: '12px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 600, color: '#92400e', fontSize: 13 }}>
+                            🎁 Don à {c.userName}
+                          </span>
+                          <input
+                            type="number"
+                            placeholder="Montant FCFA"
+                            value={giftAmount}
+                            onChange={e => setGiftAmount(e.target.value)}
+                            style={{
+                              border: '1px solid #f59e0b', borderRadius: 8,
+                              padding: '6px 12px', fontSize: 13, width: 150,
+                              outline: 'none',
+                            }}
+                          />
+                          <input
+                            type="text"
+                            placeholder="Note (optionnel)"
+                            value={giftNote}
+                            onChange={e => setGiftNote(e.target.value)}
+                            style={{
+                              border: '1px solid #e5e7eb', borderRadius: 8,
+                              padding: '6px 12px', fontSize: 13, width: 200,
+                              outline: 'none',
+                            }}
+                          />
+                          <button
+                            onClick={sendGift}
+                            disabled={giftLoading || !giftAmount}
+                            style={{
+                              background: giftLoading ? '#d1d5db' : '#f59e0b',
+                              color: 'white', border: 'none', borderRadius: 8,
+                              padding: '6px 16px', fontWeight: 700, fontSize: 13,
+                              cursor: giftLoading ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            {giftLoading ? '⏳…' : '✅ Créditer'}
+                          </button>
+                          <button
+                            onClick={() => { setGiftCode(null); setGiftMsg(''); }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 18 }}
+                          >✕</button>
+                          {giftMsg && <span style={{ fontSize: 13, fontWeight: 600, color: giftMsg.startsWith('✅') ? '#166534' : '#dc2626' }}>{giftMsg}</span>}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
