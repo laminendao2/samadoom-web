@@ -109,11 +109,12 @@ function AbonnementContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, user]);
 
-  const validateCode = async (code: string) => {
+  /** Valide un code parrain. Retourne ses infos s'il est valide, sinon null (et affiche l'erreur). */
+  const validateCode = async (code: string): Promise<ReferralInfo | null> => {
     if (!code.trim()) {
       setReferralInfo(null);
       setReferralError('');
-      return;
+      return null;
     }
     setReferralLoading(true);
     setReferralError('');
@@ -122,14 +123,18 @@ function AbonnementContent() {
       const res = await fetch(`/api/referral/validate?code=${code.trim()}${userId}`);
       const data = await res.json();
       if (data.valid) {
-        setReferralInfo(data);
+        const info = { ...data, code: data.code ?? code.trim().toUpperCase() } as ReferralInfo;
+        setReferralInfo(info);
         setReferralError('');
-      } else {
-        setReferralInfo(null);
-        setReferralError(data.error || 'Code invalide');
+        return info;
       }
+      setReferralInfo(null);
+      setReferralError(data.error || 'Code invalide');
+      return null;
     } catch {
+      setReferralInfo(null);
       setReferralError('Impossible de valider le code');
+      return null;
     } finally {
       setReferralLoading(false);
     }
@@ -168,18 +173,35 @@ function AbonnementContent() {
     }
   };
 
+  /**
+   * Code parrain à envoyer avec le paiement. Un code tapé mais jamais « appliqué »
+   * (ou modifié après validation) est validé ici : il n'est plus ignoré en silence.
+   * Retourne undefined si le code saisi est refusé → le paiement est suspendu.
+   */
+  const referralForPayment = async (): Promise<string | null | undefined> => {
+    const typed = referralCode.trim().toUpperCase();
+    if (!typed) return null;
+    if (referralInfo?.valid && referralInfo.code?.toUpperCase() === typed) return referralInfo.code;
+    const info = await validateCode(typed);
+    if (info) return info.code;
+    setError(`Le code parrain « ${typed} » n'a pas pu être appliqué. Corrigez-le, ou effacez-le pour payer sans la réduction parrainage.`);
+    return undefined;
+  };
+
   const handlePaydunya = async (planId: string) => {
     if (!user) return;
     setError('');
     setLoading(planId);
     try {
+      const codeToSend = await referralForPayment();
+      if (codeToSend === undefined) return;
       const idToken = await user.getIdToken();
       const res = await fetch('/api/paydunya/create-invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
           plan: planId,
-          referralCode: referralInfo?.valid ? referralInfo.code : null,
+          referralCode: codeToSend,
         }),
       });
       const data = await res.json();
@@ -202,13 +224,15 @@ function AbonnementContent() {
     setError('');
     setLoading(`stripe-${planId}`);
     try {
+      const codeToSend = await referralForPayment();
+      if (codeToSend === undefined) return;
       const idToken = await user.getIdToken();
       const res = await fetch('/api/stripe/create-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
           plan: planId,
-          referralCode: referralInfo?.valid ? referralInfo.code : null,
+          referralCode: codeToSend,
         }),
       });
       const data = await res.json();
