@@ -254,9 +254,9 @@ export default function SuperAdminReferralsPage() {
               </thead>
               <tbody>
                 {earnings.map((e, i) => {
-                  const isUsd = (e.currency ?? 'XOF').toUpperCase() === 'USD';
+                  const cur = (e.currency ?? 'XOF').toUpperCase();
+                  const isLegacyCents = cur === 'USD' || cur === 'EUR'; // ancien format centimes bruts
                   // Économie acheteur : 5% de réduction appliquée
-                  // Pour USD (centimes) on calcule en centimes, pour XOF en entier
                   const original = Math.round(e.amountPaid / 0.95);
                   const saving = original - e.amountPaid;
                   return (
@@ -281,7 +281,7 @@ export default function SuperAdminReferralsPage() {
                       </td>
                       <td style={{ padding: '12px 14px', fontWeight: 700, color: '#111827' }}>
                         {fmtAmount(e.amountPaid, e.currency)}
-                        {isUsd && <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 4 }}>USD</span>}
+                        {isLegacyCents && <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 4 }}>{cur}</span>}
                       </td>
                       <td style={{ padding: '12px 14px', color: '#dc2626', fontWeight: 600 }}>
                         -{fmtAmount(saving, e.currency)}
