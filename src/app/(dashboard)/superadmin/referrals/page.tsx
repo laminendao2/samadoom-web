@@ -56,6 +56,26 @@ function fmtDate(s: string) {
   catch { return s; }
 }
 
+interface MissingCommission {
+  paymentId: string;
+  referredEmail: string;
+  referralCode: string;
+  provider: string;
+  amountXof: number;
+  commission: number;
+  paidAt: string;
+  credited: boolean;
+  skipped?: string;
+}
+
+interface MissingResult {
+  applied: boolean;
+  count: number;
+  credited: number;
+  totalCommission: number;
+  missing: MissingCommission[];
+}
+
 export default function SuperAdminReferralsPage() {
   const { user } = useAuth();
   const [codes, setCodes] = useState<ReferralCode[]>([]);
@@ -64,6 +84,9 @@ export default function SuperAdminReferralsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<'profs' | 'transactions'>('profs');
+  const [missingLoading, setMissingLoading] = useState(false);
+  const [missingError, setMissingError] = useState('');
+  const [missingResult, setMissingResult] = useState<MissingResult | null>(null);
   const [fixLoading, setFixLoading] = useState(false);
   const [fixResult, setFixResult] = useState<{ earningsFixed: number; codesUpdated: number } | null>(null);
 
@@ -106,6 +129,28 @@ export default function SuperAdminReferralsPage() {
     }
   }
 
+  async function checkMissing(apply: boolean) {
+    if (!user) return;
+    setMissingLoading(true);
+    setMissingError('');
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/admin/fix-missing-commissions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apply }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setMissingError(data.error || 'Erreur'); return; }
+      setMissingResult(data as MissingResult);
+      if (apply) await loadData();
+    } catch {
+      setMissingError('Erreur réseau');
+    } finally {
+      setMissingLoading(false);
+    }
+  }
+
   useEffect(() => {
     loadData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -145,8 +190,62 @@ export default function SuperAdminReferralsPage() {
           >
             {fixLoading ? '⏳ Recalcul…' : '🔧 Recalculer balances Stripe→FCFA'}
           </button>
+          <button
+            onClick={() => checkMissing(false)}
+            disabled={missingLoading}
+            style={{
+              fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 10,
+              background: missingLoading ? '#e5e7eb' : '#b45309', color: missingLoading ? '#9ca3af' : 'white',
+              border: 'none', cursor: missingLoading ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            {missingLoading ? '⏳ Vérification…' : '🔎 Commissions manquantes'}
+          </button>
         </div>
       </div>
+
+      {/* Commissions manquantes : réduction accordée à l'acheteur, gain jamais créé */}
+      {missingError && (
+        <div style={{ marginBottom: 20, padding: 14, borderRadius: 12, background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', fontSize: 14 }}>
+          Vérification impossible : {missingError}
+        </div>
+      )}
+      {missingResult && (
+        <div style={{ marginBottom: 28, padding: 18, borderRadius: 14, background: '#fffbeb', border: '1px solid #fde68a' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: missingResult.count ? 12 : 0 }}>
+            <div style={{ fontWeight: 800, color: '#92400e', fontSize: 15 }}>
+              {missingResult.count === 0
+                ? '✅ Aucune commission manquante.'
+                : missingResult.applied
+                  ? `✅ ${missingResult.credited} commission(s) créditée(s) sur ${missingResult.count}`
+                  : `${missingResult.count} commission(s) manquante(s) — ${fmt(missingResult.totalCommission)} FCFA`}
+            </div>
+            {missingResult.count > 0 && !missingResult.applied && (
+              <button
+                onClick={() => checkMissing(true)}
+                disabled={missingLoading}
+                style={{
+                  fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 10,
+                  background: missingLoading ? '#e5e7eb' : '#16a34a', color: missingLoading ? '#9ca3af' : 'white',
+                  border: 'none', cursor: missingLoading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {missingLoading ? '⏳ Crédit en cours…' : `Créditer ${fmt(missingResult.totalCommission)} FCFA aux parrains`}
+              </button>
+            )}
+          </div>
+          {missingResult.missing.map(m => (
+            <div key={m.paymentId} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '8px 0', borderTop: '1px solid #fde68a', fontSize: 13, color: '#78350f' }}>
+              <span>
+                <strong>{m.referredEmail || 'Acheteur inconnu'}</strong> · code {m.referralCode} · {m.provider} · payé {fmt(m.amountXof)} FCFA le {fmtDate(m.paidAt)}
+              </span>
+              <span style={{ fontWeight: 700 }}>
+                {m.skipped ? `Non créditée : ${m.skipped}` : `${m.credited ? 'Créditée' : 'À créditer'} : ${fmt(m.commission)} FCFA`}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Cartes totaux */}
       {totals && (

@@ -111,6 +111,7 @@ export async function POST(req: NextRequest) {
       token: data.token,
       referralCode: validatedReferralCode,
       referrerId,
+      discountApplied: Boolean(validatedReferralCode), // réduction accordée → commission due
       createdAt: new Date().toISOString(),
     });
 

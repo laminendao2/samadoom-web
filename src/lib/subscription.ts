@@ -4,7 +4,19 @@ import { adminDb } from '@/lib/firebase-admin';
 import { computePlanExpiry } from '@/lib/plans';
 import { stripeCentsToXof } from '@/lib/fx';
 
-const REFERRAL_COMMISSION = 0.10; // 10 % du montant payé pour le parrain
+export const REFERRAL_COMMISSION = 0.10; // 10 % du montant payé pour le parrain
+
+/**
+ * L'acheteur a-t-il réellement bénéficié de la réduction parrainage sur ce paiement ?
+ * Si oui, la commission du parrain est due — qu'il soit abonné Pro ou non.
+ * (Les anciennes factures PayDunya n'ont pas `discountApplied` : on compare les montants.)
+ */
+export function referralDiscountGranted(payment: FirebaseFirestore.DocumentData): boolean {
+  if (payment.discountApplied === true) return true;
+  return typeof payment.amount === 'number'
+    && typeof payment.originalAmount === 'number'
+    && payment.amount < payment.originalAmount;
+}
 
 const PAYDUNYA_V1 = process.env.PAYDUNYA_MODE === 'live'
   ? 'https://app.paydunya.com/api/v1'
@@ -162,7 +174,7 @@ export async function finalizePaidPayment(
 
     // Commission du parrain : Pro vérifié soit au moment du paiement (referrerId déjà validé
     // dans create-checkout quand discountApplied=true), soit en temps réel sinon.
-    const referrerValidated = payment.discountApplied === true
+    const referrerValidated = referralDiscountGranted(payment)
       || isUserPro(referrerSnap?.data(), now);
     if (hasReferral && codeRef && codeSnap?.exists
         && codeSnap.data()?.userId === payment.referrerId
