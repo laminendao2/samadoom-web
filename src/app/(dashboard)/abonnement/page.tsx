@@ -36,7 +36,7 @@ const BASE_PLANS: Plan[] = [
     price: 1500,
     regularPrice: 3000,
     launch: true,
-    stripePriceLabel: '$5',
+    stripePriceLabel: '€4.99',
     currency: 'FCFA',
     period: '/mois',
     features: ['Accès à tout le Coran', 'Cours illimités', 'Suivi des progrès', 'Support prioritaire'],
@@ -48,7 +48,7 @@ const BASE_PLANS: Plan[] = [
     price: 15000,
     regularPrice: 24000,
     launch: true,
-    stripePriceLabel: '$39',
+    stripePriceLabel: '€39.99',
     currency: 'FCFA',
     period: '/an',
     features: ['Tout du plan Mensuel', 'Accès famille (2 enfants)', 'Contenu exclusif'],
@@ -481,7 +481,7 @@ function AbonnementContent() {
                 {loading === plan.id ? 'Redirection…' : '🌍 Mobile Money (Orange, Wave…)'}
               </button>
 
-              {/* Bouton Stripe (prix en USD, hors prix de lancement) */}
+              {/* Bouton Stripe (prix en EUR — taux fixe CFA, hors prix de lancement) */}
               {plan.stripePriceLabel && (
               <button
                   disabled={loading === `stripe-${plan.id}`}
@@ -542,7 +542,7 @@ function AbonnementContent() {
           💳 Carte bancaire internationale (Stripe)
         </h3>
         <p style={{ fontSize: 13, color: '#475569', marginBottom: 16 }}>
-          Visa, Mastercard, Apple Pay, Google Pay — pour les utilisateurs hors Afrique. Paiement en USD.
+          Visa, Mastercard, Apple Pay, Google Pay — pour les utilisateurs hors Afrique. Paiement en EUR (taux fixe avec le FCFA).
         </p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           {[

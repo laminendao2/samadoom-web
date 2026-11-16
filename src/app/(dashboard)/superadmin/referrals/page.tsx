@@ -40,15 +40,13 @@ function fmt(n: number) {
 }
 
 /** Affiche un montant avec sa devise correcte.
- *  Stripe stocke en centimes USD → diviser par 100 pour afficher en $.
- *  PayDunya stocke en FCFA entiers → afficher tel quel.
+ *  Les nouvelles commissions Stripe sont normalisées en XOF (amountPaid = XOF).
+ *  Anciens records USD encore en centimes → afficher en $ pour repérage.
  */
 function fmtAmount(amount: number, currency: string): string {
   const cur = (currency ?? 'XOF').toUpperCase();
-  if (cur === 'USD') {
-    // Stripe : montant en centimes
-    return `$${(amount / 100).toFixed(2)}`;
-  }
+  if (cur === 'USD') return `$${(amount / 100).toFixed(2)}`; // ancien format
+  if (cur === 'EUR') return `€${(amount / 100).toFixed(2)}`; // ancien format centimes
   return `${fmt(amount)} FCFA`;
 }
 
@@ -145,7 +143,7 @@ export default function SuperAdminReferralsPage() {
               border: 'none', cursor: fixLoading ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
             }}
           >
-            {fixLoading ? '⏳ Recalcul…' : '🔧 Recalculer balances USD→FCFA'}
+            {fixLoading ? '⏳ Recalcul…' : '🔧 Recalculer balances Stripe→FCFA'}
           </button>
         </div>
       </div>
