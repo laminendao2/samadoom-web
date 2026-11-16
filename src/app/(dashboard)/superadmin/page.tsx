@@ -41,9 +41,19 @@ interface PlatformStats {
   nativeLabel: string;
 }
 
+interface RcData {
+  activeSubscriptions: number;
+  mrrUsd: number | null;
+  revenueUsd28d: number | null;
+  mrrXof: number | null;
+  revenueXof28d: number | null;
+  apiConnected: boolean;
+  error?: string;
+}
+
 interface FinanceStats {
   platforms: Record<string, PlatformStats>;
-  revenueCat: { activeSubscriptions: number; note: string };
+  revenueCat: RcData;
   commissions: { totalEarned: number; dues: number; paid: number };
   summary: { totalXof: number; netXof: number; totalPayments: number };
 }
@@ -228,8 +238,19 @@ export default function SuperAdminDashboard() {
                         <div className="flex items-center gap-2">
                           <span className="text-lg">📱</span>
                           <div>
-                            <div className="font-bold text-gray-800">RevenueCat (Apple / Google)</div>
-                            <div className="text-xs text-gray-400">IAP — abonnements App Store & Play Store</div>
+                            <div className="font-bold text-gray-800 flex items-center gap-2">
+                              RevenueCat (Apple / Google)
+                              {financeStats.revenueCat.apiConnected
+                                ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">🟢 Connecté</span>
+                                : <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">⚠️ Clé manquante</span>
+                              }
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              {financeStats.revenueCat.apiConnected
+                                ? `IAP App Store & Play Store · MRR $${financeStats.revenueCat.mrrUsd?.toFixed(2) ?? '—'} · 28j $${financeStats.revenueCat.revenueUsd28d?.toFixed(2) ?? '—'}`
+                                : financeStats.revenueCat.error ?? 'IAP — abonnements App Store & Play Store'
+                              }
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -241,8 +262,18 @@ export default function SuperAdminDashboard() {
                       </td>
                       <td className="px-5 py-4 text-right text-gray-400">—</td>
                       <td className="px-5 py-4 text-right text-gray-400">—</td>
-                      <td className="px-5 py-4 text-right text-gray-400 text-xs">Voir RevenueCat</td>
-                      <td className="px-5 py-4 text-right text-gray-400 text-xs">dashboard.revenuecat.com</td>
+                      <td className="px-5 py-4 text-right text-xs text-purple-700 font-bold">
+                        {financeStats.revenueCat.mrrUsd !== null
+                          ? `$${financeStats.revenueCat.mrrUsd.toFixed(2)}/mois`
+                          : <a href="https://app.revenuecat.com" target="_blank" rel="noopener" className="text-purple-500 underline">dashboard</a>
+                        }
+                      </td>
+                      <td className="px-5 py-4 text-right font-black text-purple-700">
+                        {financeStats.revenueCat.mrrXof !== null
+                          ? `~${fmt(financeStats.revenueCat.mrrXof)} FCFA/mois`
+                          : <span className="text-gray-400 text-xs font-normal">Ajouter REVENUECAT_SECRET_KEY</span>
+                        }
+                      </td>
                     </tr>
                     {/* Total */}
                     <tr className="bg-gray-800 text-white">

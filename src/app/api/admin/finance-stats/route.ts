@@ -83,19 +83,81 @@ export async function GET(req: NextRequest) {
     totalCommissionsPaid   += ((d.totalEarned ?? 0) - (d.balance ?? 0));
   }
 
-  // ── Totaux ────────────────────────────────────────────────────────────────
+  // ── Totaux Stripe + PayDunya ──────────────────────────────────────────────
   const totalXof = Object.values(platforms).reduce((s, p) => s + p.totalXof, 0);
   const netXof   = totalXof - totalCommissionsDues;
 
-  // ── RevenueCat : estimé depuis users.subscriptionEnd (abonnements manuels exlus)
-  // Les IAP Apple/Google ne sont pas accessibles ici directement
-  const usersSnap = await adminDb.collection('users').get();
-  const now = Date.now();
-  let rcActiveCount = 0;
-  for (const doc of usersSnap.docs) {
-    const u = doc.data();
-    // Abonné "isPro" sans planExpiresAt = provient de RevenueCat (pas de paiement Firestore)
-    if (u.isPro === true && !u.planExpiresAt && !u.subscriptionEnd) rcActiveCount++;
+  // ── RevenueCat : appel direct à l'API REST v2 ─────────────────────────────
+  // Clé secrète dans REVENUECAT_SECRET_KEY (Vercel env vars)
+  // Project ID Sama Doom : 40327083
+  const RC_SECRET = process.env.REVENUECAT_SECRET_KEY ?? '';
+  const RC_PROJECT_ID = '40327083';
+
+  interface RcData {
+    activeSubscriptions: number;
+    mrrUsd: number | null;
+    revenueUsd28d: number | null;
+    mrrXof: number | null;
+    revenueXof28d: number | null;
+    apiConnected: boolean;
+    error?: string;
+  }
+
+  let rcData: RcData = {
+    activeSubscriptions: 0,
+    mrrUsd: null,
+    revenueUsd28d: null,
+    mrrXof: null,
+    revenueXof28d: null,
+    apiConnected: false,
+  };
+
+  if (RC_SECRET) {
+    try {
+      // Endpoint v2 overview metrics (disponible sur tous les plans)
+      const rcRes = await fetch(
+        `https://api.revenuecat.com/v2/projects/${RC_PROJECT_ID}/metrics/overview`,
+        {
+          headers: {
+            Authorization: `Bearer ${RC_SECRET}`,
+            'Content-Type': 'application/json',
+          },
+          // next: { revalidate: 300 }, // cache 5 min
+        }
+      );
+
+      if (rcRes.ok) {
+        const rcJson = await rcRes.json() as {
+          metrics?: Array<{ id: string; value: number; period?: string }>;
+        };
+        const metrics = rcJson.metrics ?? [];
+        const find = (id: string) => metrics.find((m) => m.id === id)?.value ?? null;
+
+        const mrrRaw    = find('mrr');           // en USD
+        const rev28Raw  = find('revenue');       // revenus 28 derniers jours en USD
+        const activeSubs = find('active_subscriptions') ?? find('active_paying_subscribers');
+
+        // Taux USD→XOF approximatif pour affichage
+        const USD_DISPLAY = 600;
+        rcData = {
+          activeSubscriptions: activeSubs ? Math.round(activeSubs) : 0,
+          mrrUsd:       mrrRaw,
+          revenueUsd28d: rev28Raw,
+          mrrXof:       mrrRaw    !== null ? Math.round(mrrRaw    * USD_DISPLAY) : null,
+          revenueXof28d: rev28Raw !== null ? Math.round(rev28Raw  * USD_DISPLAY) : null,
+          apiConnected: true,
+        };
+      } else {
+        const errText = await rcRes.text().catch(() => '');
+        rcData.error = `HTTP ${rcRes.status}: ${errText.slice(0, 120)}`;
+        rcData.apiConnected = false;
+      }
+    } catch (e: unknown) {
+      rcData.error = e instanceof Error ? e.message : String(e);
+      rcData.apiConnected = false;
+    }
+  } else {
+    rcData.error = 'REVENUECAT_SECRET_KEY manquante — ajouter dans Vercel env vars';
   }
 
   return NextResponse.json({
@@ -104,10 +166,7 @@ export async function GET(req: NextRequest) {
       paydunya: platforms.paydunya,
       ...(platforms.other.count > 0 ? { other: platforms.other } : {}),
     },
-    revenueCat: {
-      activeSubscriptions: rcActiveCount,
-      note: 'Revenus gérés par Apple/Google — disponibles dans le dashboard RevenueCat',
-    },
+    revenueCat: rcData,
     commissions: {
       totalEarned: totalCommissionsEarned,
       dues:  totalCommissionsDues,
