@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { collection, getDocs, query, limit, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
@@ -54,8 +54,74 @@ interface RcData {
 interface FinanceStats {
   platforms: Record<string, PlatformStats>;
   revenueCat: RcData;
-  commissions: { totalEarned: number; dues: number; paid: number };
-  summary: { totalXof: number; netXof: number; totalPayments: number };
+  commissions: { totalEarned: number; dues: number; paid: number; earnedInPeriod: number };
+  summary: { totalXof: number; netXof: number; netPeriodXof: number; totalPayments: number };
+}
+
+// ── Période d'affichage des finances ─────────────────────────────────────────
+type PeriodMode = 'all' | 'day' | 'week' | 'month' | 'year' | 'custom';
+
+const PERIOD_MODES: { id: PeriodMode; label: string }[] = [
+  { id: 'all', label: 'Tout' },
+  { id: 'day', label: 'Jour' },
+  { id: 'week', label: 'Semaine' },
+  { id: 'month', label: 'Mois' },
+  { id: 'year', label: 'Année' },
+  { id: 'custom', label: 'Personnalisé' },
+];
+
+function startOfDay(d: Date): Date { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+
+/** 'YYYY-MM-DD' (champ date) → minuit local. */
+function parseDateInput(v: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+/**
+ * Bornes [from, to[ dans le fuseau du navigateur.
+ * null = période incomplète (personnalisé sans dates valides) → pas de requête.
+ */
+function periodRange(mode: PeriodMode, anchor: Date, customFrom: string, customTo: string):
+  { from: Date | null; to: Date | null } | null {
+  const y = anchor.getFullYear(), m = anchor.getMonth(), d = anchor.getDate();
+  switch (mode) {
+    case 'all': return { from: null, to: null };
+    case 'day': return { from: new Date(y, m, d), to: new Date(y, m, d + 1) };
+    case 'week': {
+      const offset = (anchor.getDay() + 6) % 7;        // semaine du lundi au dimanche
+      return { from: new Date(y, m, d - offset), to: new Date(y, m, d - offset + 7) };
+    }
+    case 'month': return { from: new Date(y, m, 1), to: new Date(y, m + 1, 1) };
+    case 'year': return { from: new Date(y, 0, 1), to: new Date(y + 1, 0, 1) };
+    case 'custom': {
+      const f = parseDateInput(customFrom), t = parseDateInput(customTo);
+      if (!f || !t || f > t) return null;
+      return { from: f, to: new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1) }; // fin incluse
+    }
+  }
+}
+
+function shiftAnchor(mode: PeriodMode, anchor: Date, dir: 1 | -1): Date {
+  const y = anchor.getFullYear(), m = anchor.getMonth(), d = anchor.getDate();
+  if (mode === 'day') return new Date(y, m, d + dir);
+  if (mode === 'week') return new Date(y, m, d + 7 * dir);
+  if (mode === 'month') return new Date(y, m + dir, 1);
+  if (mode === 'year') return new Date(y + dir, 0, 1);
+  return anchor;
+}
+
+function periodLabel(mode: PeriodMode, range: { from: Date | null; to: Date | null } | null): string {
+  if (mode === 'all') return 'Depuis le début';
+  if (!range || !range.from || !range.to) return 'Choisir deux dates';
+  const from = range.from;
+  const last = new Date(range.to.getFullYear(), range.to.getMonth(), range.to.getDate() - 1);
+  const full: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' };
+  if (mode === 'day') return from.toLocaleDateString('fr-FR', { weekday: 'long', ...full });
+  if (mode === 'month') return from.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  if (mode === 'year') return String(from.getFullYear());
+  return `Du ${from.toLocaleDateString('fr-FR', full)} au ${last.toLocaleDateString('fr-FR', full)}`;
 }
 
 function tsToDate(ts: unknown): Date {
@@ -70,6 +136,13 @@ export default function SuperAdminDashboard() {
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
   const [financeStats, setFinanceStats] = useState<FinanceStats | null>(null);
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
+  const [anchor, setAnchor] = useState<Date>(() => startOfDay(new Date()));
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [financeLoading, setFinanceLoading] = useState(false);
+  const [financeError, setFinanceError] = useState(false);
+  const financeReqId = useRef(0);
   const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [retryLoading, setRetryLoading] = useState(false);
@@ -84,6 +157,41 @@ export default function SuperAdminDashboard() {
     loadAll();
   }, [profile]);
 
+  const range = periodRange(periodMode, anchor, customFrom, customTo);
+  const fromIso = range?.from ? range.from.toISOString() : '';
+  const toIso = range?.to ? range.to.toISOString() : '';
+  const rangeReady = range !== null;
+
+  async function loadFinance() {
+    const reqId = ++financeReqId.current;
+    try {
+      const idToken = await getAuth().currentUser?.getIdToken();
+      if (reqId !== financeReqId.current) return;
+      setFinanceLoading(true);
+      setFinanceError(false);
+      const params = new URLSearchParams();
+      if (fromIso) params.set('from', fromIso);
+      if (toIso) params.set('to', toIso);
+      const qs = params.toString();
+      const res = await fetch(`/api/admin/finance-stats${qs ? `?${qs}` : ''}`, {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      if (reqId !== financeReqId.current) return;      // une réponse plus récente est attendue
+      if (res.ok && data?.summary) setFinanceStats(data as FinanceStats);
+      else setFinanceError(true);
+    } catch {
+      if (reqId === financeReqId.current) setFinanceError(true);
+    } finally {
+      if (reqId === financeReqId.current) setFinanceLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!profile || !isSuperAdmin || !rangeReady) return;
+    loadFinance();
+  }, [profile, isSuperAdmin, rangeReady, fromIso, toIso]);
+
   async function retryStripePayments() {
     setRetryLoading(true);
     setRetryResult(null);
@@ -96,7 +204,7 @@ export default function SuperAdminDashboard() {
       const data = await res.json();
       setRetryResult(data);
       // Recharger les paiements pour refléter les changements
-      await loadAll();
+      await Promise.all([loadAll(), loadFinance()]);
     } catch {
       setRetryResult({ activated: 0, already: 0, cancelled: 0, total: 0 });
     } finally {
@@ -106,12 +214,10 @@ export default function SuperAdminDashboard() {
 
   async function loadAll() {
     try {
-      const idToken = await getAuth().currentUser?.getIdToken();
-      const [ecolesSnap, usersSnap, paymentsSnap, finRes] = await Promise.all([
+      const [ecolesSnap, usersSnap, paymentsSnap] = await Promise.all([
         getDocs(collection(db, 'ecoles')),
         getDocs(collection(db, 'users')),
         getDocs(query(collection(db, 'payments'), limit(10))),
-        fetch('/api/admin/finance-stats', { headers: { Authorization: `Bearer ${idToken}` } }).then(r => r.json()),
       ]);
       const now = new Date();
       const users = usersSnap.docs.map(d => d.data());
@@ -129,7 +235,6 @@ export default function SuperAdminDashboard() {
         totalAdmins: users.filter(u => u.role === 'admin').length,
         totalParents: users.filter(u => u.role === 'parent').length,
       });
-      if (finRes && finRes.summary) setFinanceStats(finRes as FinanceStats);
       const allPayments = paymentsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Payment);
       allPayments.sort((a, b) => tsToDate(b.createdAt).getTime() - tsToDate(a.createdAt).getTime());
       setRecentPayments(allPayments.slice(0, 10));
@@ -180,16 +285,75 @@ export default function SuperAdminDashboard() {
           {/* ── FINANCES ─────────────────────────────────────────── */}
           {financeStats && (
             <div className="mb-8">
-              <h2 className="text-lg font-black text-gray-800 mb-4">💰 Finances</h2>
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-3">
+                <h2 className="text-lg font-black text-gray-800">💰 Finances</h2>
+                <div className="flex flex-wrap gap-1 bg-gray-100 rounded-xl p-1" role="group" aria-label="Période">
+                  {PERIOD_MODES.map(pm => (
+                    <button
+                      key={pm.id}
+                      type="button"
+                      aria-pressed={periodMode === pm.id}
+                      onClick={() => {
+                        if (pm.id !== 'custom' && pm.id !== 'all') setAnchor(startOfDay(new Date()));
+                        setPeriodMode(pm.id);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+                        periodMode === pm.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                      }`}
+                    >
+                      {pm.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
+              {/* Période affichée + navigation */}
+              <div className="flex flex-wrap items-center gap-3 mb-4 min-h-[36px]">
+                {(periodMode === 'day' || periodMode === 'week' || periodMode === 'month' || periodMode === 'year') && (
+                  <div className="flex items-center gap-1">
+                    <button type="button" aria-label="Période précédente"
+                      onClick={() => setAnchor(a => shiftAnchor(periodMode, a, -1))}
+                      className="w-8 h-8 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 font-bold">‹</button>
+                    <button type="button" aria-label="Période suivante"
+                      onClick={() => setAnchor(a => shiftAnchor(periodMode, a, 1))}
+                      className="w-8 h-8 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 font-bold">›</button>
+                  </div>
+                )}
+                {periodMode === 'custom' && (
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+                    <label className="flex items-center gap-2">Du
+                      <input type="date" value={customFrom} max={customTo || undefined}
+                        onChange={e => setCustomFrom(e.target.value)}
+                        className="border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-800" />
+                    </label>
+                    <label className="flex items-center gap-2">au
+                      <input type="date" value={customTo} min={customFrom || undefined}
+                        onChange={e => setCustomTo(e.target.value)}
+                        className="border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-800" />
+                    </label>
+                  </div>
+                )}
+                <span className="text-sm font-semibold text-gray-700 first-letter:uppercase">{periodLabel(periodMode, range)}</span>
+                {financeLoading && <span className="text-xs text-gray-400 animate-pulse">Mise à jour…</span>}
+                {financeError && !financeLoading && (
+                  <span className="text-xs text-red-600 font-medium">Chargement impossible — les chiffres affichés peuvent dater de la période précédente.</span>
+                )}
+              </div>
+
+              <div className={financeLoading || !rangeReady ? 'opacity-50 transition-opacity' : 'transition-opacity'}>
               {/* Résumé top */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
-                {[
+                {(periodMode === 'all' ? [
                   { label: 'Total encaissé', value: `${fmt(financeStats.summary.totalXof)} FCFA`, icon: '📥', color: '#16a34a', bg: '#f0fdf4' },
                   { label: 'Commissions dues', value: `${fmt(financeStats.commissions.dues)} FCFA`, icon: '🤝', color: '#d97706', bg: '#fffbeb' },
                   { label: 'Commissions payées', value: `${fmt(financeStats.commissions.paid)} FCFA`, icon: '✅', color: '#6b7280', bg: '#f9fafb' },
                   { label: 'Net à encaisser', value: `${fmt(financeStats.summary.netXof)} FCFA`, icon: '🏦', color: '#2563eb', bg: '#eff6ff' },
-                ].map(c => (
+                ] : [
+                  { label: 'Encaissé sur la période', value: `${fmt(financeStats.summary.totalXof)} FCFA`, icon: '📥', color: '#16a34a', bg: '#f0fdf4' },
+                  { label: 'Commissions générées sur la période', value: `${fmt(financeStats.commissions.earnedInPeriod)} FCFA`, icon: '🤝', color: '#d97706', bg: '#fffbeb' },
+                  { label: 'Net de la période', value: `${fmt(financeStats.summary.netPeriodXof)} FCFA`, icon: '🏦', color: '#2563eb', bg: '#eff6ff' },
+                  { label: 'Transactions sur la période', value: `${financeStats.summary.totalPayments}`, icon: '🧾', color: '#6b7280', bg: '#f9fafb' },
+                ]).map(c => (
                   <div key={c.label} style={{ background: c.bg, border: `1px solid ${c.color}20` }} className="rounded-2xl p-5">
                     <div className="text-2xl mb-1">{c.icon}</div>
                     <div style={{ color: c.color }} className="text-xl font-black">{c.value}</div>
@@ -247,7 +411,7 @@ export default function SuperAdminDashboard() {
                             </div>
                             <div className="text-xs text-gray-400">
                               {financeStats.revenueCat.apiConnected
-                                ? `IAP App Store & Play Store · MRR $${financeStats.revenueCat.mrrUsd?.toFixed(2) ?? '—'} · 28j $${financeStats.revenueCat.revenueUsd28d?.toFixed(2) ?? '—'}`
+                                ? `IAP App Store & Play Store · MRR $${financeStats.revenueCat.mrrUsd?.toFixed(2) ?? '—'} · 28j $${financeStats.revenueCat.revenueUsd28d?.toFixed(2) ?? '—'}${periodMode === 'all' ? '' : ' · valeurs actuelles, non filtrées par période'}`
                                 : financeStats.revenueCat.error ?? 'IAP — abonnements App Store & Play Store'
                               }
                             </div>
@@ -288,7 +452,7 @@ export default function SuperAdminDashboard() {
               {/* Commissions détail */}
               <div className="mt-4 bg-amber-50 border border-amber-200 rounded-2xl p-5 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
                 <div>
-                  <div className="font-bold text-amber-800 mb-1">🤝 Commissions parrainage</div>
+                  <div className="font-bold text-amber-800 mb-1">🤝 Commissions parrainage{periodMode === 'all' ? '' : ' — soldes cumulés, toutes périodes'}</div>
                   <div className="text-sm text-amber-700">
                     Total gagné par les parrains : <strong>{fmt(financeStats.commissions.totalEarned)} FCFA</strong> ·
                     Déjà versé : <strong>{fmt(financeStats.commissions.paid)} FCFA</strong>
@@ -303,10 +467,15 @@ export default function SuperAdminDashboard() {
               {/* Net */}
               <div className="mt-3 bg-gradient-to-r from-blue-600 to-blue-800 rounded-2xl p-5 text-white flex items-center justify-between">
                 <div>
-                  <div className="text-blue-200 text-sm font-medium">Net estimé après commissions</div>
-                  <div className="text-xs text-blue-300 mt-0.5">Total encaissé − commissions dues (RevenueCat non inclus)</div>
+                  <div className="text-blue-200 text-sm font-medium">{periodMode === 'all' ? 'Net estimé après commissions' : 'Net de la période'}</div>
+                  <div className="text-xs text-blue-300 mt-0.5">
+                    {periodMode === 'all'
+                      ? 'Total encaissé − commissions dues (RevenueCat non inclus)'
+                      : 'Encaissé − commissions générées sur la période (RevenueCat non inclus)'}
+                  </div>
                 </div>
-                <div className="text-3xl font-black">{fmt(financeStats.summary.netXof)} FCFA</div>
+                <div className="text-3xl font-black">{fmt(periodMode === 'all' ? financeStats.summary.netXof : financeStats.summary.netPeriodXof)} FCFA</div>
+              </div>
               </div>
             </div>
           )}
