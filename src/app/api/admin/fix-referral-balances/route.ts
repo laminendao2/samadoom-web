@@ -1,22 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 import { verifyRequestUser } from '@/lib/server-auth';
+import { stripeCentsToXof } from '@/lib/fx';
 
-const USD_TO_XOF = 600;
+// Taux fixe utilisé pour recalculer les anciens records USD (approximation historique)
+const USD_TO_XOF_HISTORIC = 600;
+// Taux fixe EUR→XOF officiel (pegging CFA depuis 1999)
+const EUR_TO_XOF = 655.957;
+const FEE_FACTOR = 0.88;
 const COMMISSION_RATE = 0.10;
 
 /**
  * POST /api/admin/fix-referral-balances
  *
- * SuperAdmin uniquement — migration des referralEarnings USD mal converties.
+ * SuperAdmin uniquement — migration des referralEarnings Stripe (USD ou EUR) mal converties.
  *
- * Pour chaque earning avec provider='stripe' ou currency='usd' (ancien format) :
- *   1. Recalcule amountPaid en XOF (centimes USD × 600 / 100)
+ * Pour chaque earning avec provider='stripe' (ancien format centimes bruts) :
+ *   1. Recalcule amountPaid en XOF selon la devise (USD → taux historique, EUR → taux fixe)
  *   2. Recalcule commission en XOF
  *   3. Met à jour le doc earning
  *
- * Puis recalcule balance + totalEarned de chaque referralCode depuis zéro
- * en sommant tous ses earnings corrigés.
+ * Puis recalcule balance + totalEarned de chaque referralCode depuis zéro.
  */
 export async function POST(req: NextRequest) {
   const authUser = await verifyRequestUser(req);
@@ -40,17 +44,26 @@ export async function POST(req: NextRequest) {
     const currency = (d.currency ?? 'XOF').toUpperCase();
     const provider  = d.provider ?? 'paydunya';
 
-    // Identifier les earnings en centimes USD (ancien format ou nouveau avec amountPaidOriginal)
-    const isUsdCents =
+    // Identifier les earnings en centimes (Stripe — USD ou EUR, ancien ou nouveau format)
+    const isStripeCents =
       currency === 'USD' ||
+      currency === 'EUR' ||
       provider === 'stripe' ||
       d.amountPaidOriginal !== undefined;
 
-    if (!isUsdCents) continue; // déjà en XOF, rien à faire
+    if (!isStripeCents) continue; // déjà en XOF (PayDunya), rien à faire
 
-    // Montant original en centimes USD
+    // Montant original en centimes (USD ou EUR)
     const rawCents = d.amountPaidOriginal ?? d.amountPaid;
-    const amountXof = Math.round((rawCents / 100) * USD_TO_XOF);
+
+    let amountXof: number;
+    if (currency === 'EUR') {
+      // EUR → XOF fixe officiel × FEE_FACTOR
+      amountXof = Math.round((rawCents / 100) * EUR_TO_XOF * FEE_FACTOR);
+    } else {
+      // USD → taux historique approximatif (600 × FEE_FACTOR)
+      amountXof = Math.round((rawCents / 100) * USD_TO_XOF_HISTORIC * FEE_FACTOR);
+    }
     const commissionXof = Math.round(amountXof * COMMISSION_RATE);
 
     earningFixes.push({

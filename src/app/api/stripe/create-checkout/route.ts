@@ -23,10 +23,10 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-10-28.endive',
 });
 
-// Prix en centimes USD — TEST (à remettre : mensuel 500, annuel 3900)
+// Prix en centimes EUR — 1 EUR = 655.957 XOF (taux fixe CFA)
 const STRIPE_PRICES: Record<string, number> = {
-  mensuel: 100,  // $1.00 TEST
-  annuel: 100,   // $1.00 TEST
+  mensuel: 499,   // €4.99/mois ≈ 3 270 FCFA
+  annuel: 3999,   // €39.99/an  ≈ 26 220 FCFA
 };
 
 const REFERRAL_DISCOUNT = 0.05; // 5%
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
       line_items: [
         {
           price_data: {
-            currency: 'usd',
+            currency: 'eur',
             unit_amount: finalAmount,
             product_data: {
               name: `Sama Doom — Plan ${plan === 'mensuel' ? 'Mensuel' : 'Annuel'}`,
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
       userEmail: userEmail || '',
       plan,
       amount: finalAmount,
-      currency: 'usd',
+      currency: 'eur',
       referralCode: referralCode || null,
       referrerId: referrerId || null,
       discountApplied,

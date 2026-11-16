@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'crypto';
 import { Timestamp } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase-admin';
 import { computePlanExpiry } from '@/lib/plans';
+import { stripeCentsToXof } from '@/lib/fx';
 
 const REFERRAL_COMMISSION = 0.10; // 10 % du montant payé pour le parrain
 
@@ -167,10 +168,10 @@ export async function finalizePaidPayment(
         && codeSnap.data()?.userId === payment.referrerId
         && referrerValidated) {
       // Normaliser le montant en FCFA pour la commission (base commune)
-      // Stripe stocke en centimes USD → $1 ≈ 600 FCFA (taux fixe CFA/USD)
-      const USD_TO_XOF = 600;
-      const amountInXof = (payment.currency ?? 'XOF').toUpperCase() === 'USD'
-        ? Math.round((payment.amount / 100) * USD_TO_XOF)
+      // Stripe stocke en centimes USD → convertir au taux effectif du moment
+      const paymentCurrency = (payment.currency ?? 'XOF').toUpperCase();
+      const amountInXof = (paymentCurrency === 'USD' || paymentCurrency === 'EUR')
+        ? await stripeCentsToXof(payment.amount, paymentCurrency.toLowerCase() as 'usd' | 'eur')
         : payment.amount;
       const commission = Math.round(amountInXof * REFERRAL_COMMISSION);
       // Id déterministe : un paiement ne peut créer qu'une seule ligne de gain
