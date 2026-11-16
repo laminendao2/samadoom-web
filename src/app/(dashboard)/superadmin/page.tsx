@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation';
 import { getAuth } from 'firebase/auth';
 import Link from 'next/link';
 
+function fmt(n: number) { return Math.round(n).toLocaleString('fr-FR'); }
+
 interface Stats {
   totalEcoles: number;
   totalUsers: number;
@@ -24,7 +26,26 @@ interface Payment {
   amount: number;
   currency: string;
   status: string;
+  provider?: string;
   createdAt: Timestamp | string;
+}
+
+interface PlatformStats {
+  count: number;
+  completed: number;
+  pending: number;
+  cancelled: number;
+  totalNative: number;
+  totalXof: number;
+  currency: string;
+  nativeLabel: string;
+}
+
+interface FinanceStats {
+  platforms: Record<string, PlatformStats>;
+  revenueCat: { activeSubscriptions: number; note: string };
+  commissions: { totalEarned: number; dues: number; paid: number };
+  summary: { totalXof: number; netXof: number; totalPayments: number };
 }
 
 function tsToDate(ts: unknown): Date {
@@ -38,6 +59,7 @@ export default function SuperAdminDashboard() {
   const { profile } = useAuth();
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
+  const [financeStats, setFinanceStats] = useState<FinanceStats | null>(null);
   const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [retryLoading, setRetryLoading] = useState(false);
@@ -74,10 +96,12 @@ export default function SuperAdminDashboard() {
 
   async function loadAll() {
     try {
-      const [ecolesSnap, usersSnap, paymentsSnap] = await Promise.all([
+      const idToken = await getAuth().currentUser?.getIdToken();
+      const [ecolesSnap, usersSnap, paymentsSnap, finRes] = await Promise.all([
         getDocs(collection(db, 'ecoles')),
         getDocs(collection(db, 'users')),
-        getDocs(query(collection(db, 'payments'), limit(50))),
+        getDocs(query(collection(db, 'payments'), limit(10))),
+        fetch('/api/admin/finance-stats', { headers: { Authorization: `Bearer ${idToken}` } }).then(r => r.json()),
       ]);
       const now = new Date();
       const users = usersSnap.docs.map(d => d.data());
@@ -95,6 +119,7 @@ export default function SuperAdminDashboard() {
         totalAdmins: users.filter(u => u.role === 'admin').length,
         totalParents: users.filter(u => u.role === 'parent').length,
       });
+      if (finRes && finRes.summary) setFinanceStats(finRes as FinanceStats);
       const allPayments = paymentsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Payment);
       allPayments.sort((a, b) => tsToDate(b.createdAt).getTime() - tsToDate(a.createdAt).getTime());
       setRecentPayments(allPayments.slice(0, 10));
@@ -141,6 +166,119 @@ export default function SuperAdminDashboard() {
               </div>
             ))}
           </div>
+
+          {/* ── FINANCES ─────────────────────────────────────────── */}
+          {financeStats && (
+            <div className="mb-8">
+              <h2 className="text-lg font-black text-gray-800 mb-4">💰 Finances</h2>
+
+              {/* Résumé top */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+                {[
+                  { label: 'Total encaissé', value: `${fmt(financeStats.summary.totalXof)} FCFA`, icon: '📥', color: '#16a34a', bg: '#f0fdf4' },
+                  { label: 'Commissions dues', value: `${fmt(financeStats.commissions.dues)} FCFA`, icon: '🤝', color: '#d97706', bg: '#fffbeb' },
+                  { label: 'Commissions payées', value: `${fmt(financeStats.commissions.paid)} FCFA`, icon: '✅', color: '#6b7280', bg: '#f9fafb' },
+                  { label: 'Net à encaisser', value: `${fmt(financeStats.summary.netXof)} FCFA`, icon: '🏦', color: '#2563eb', bg: '#eff6ff' },
+                ].map(c => (
+                  <div key={c.label} style={{ background: c.bg, border: `1px solid ${c.color}20` }} className="rounded-2xl p-5">
+                    <div className="text-2xl mb-1">{c.icon}</div>
+                    <div style={{ color: c.color }} className="text-xl font-black">{c.value}</div>
+                    <div className="text-xs text-gray-500 mt-1 font-medium">{c.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Tableau par plateforme */}
+              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50">
+                      <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Plateforme</th>
+                      <th className="text-right px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Transactions</th>
+                      <th className="text-right px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Payés</th>
+                      <th className="text-right px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">En attente</th>
+                      <th className="text-right px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Annulés</th>
+                      <th className="text-right px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Montant natif</th>
+                      <th className="text-right px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Équiv. FCFA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(financeStats.platforms).map(([key, pl]) => (
+                      <tr key={key} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">{key === 'stripe' ? '💳' : key === 'paydunya' ? '📱' : '🔗'}</span>
+                            <div>
+                              <div className="font-bold text-gray-800 capitalize">{key === 'paydunya' ? 'PayDunya' : key === 'stripe' ? 'Stripe' : key}</div>
+                              <div className="text-xs text-gray-400">{key === 'stripe' ? 'Carte bancaire internationale (EUR)' : key === 'paydunya' ? 'Mobile Money — Orange, Wave (FCFA)' : 'Autre'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-right font-semibold text-gray-700">{pl.count}</td>
+                        <td className="px-5 py-4 text-right"><span className="text-green-700 font-bold bg-green-50 px-2 py-0.5 rounded-full">{pl.completed}</span></td>
+                        <td className="px-5 py-4 text-right"><span className="text-yellow-700 font-semibold">{pl.pending}</span></td>
+                        <td className="px-5 py-4 text-right"><span className="text-red-500 font-semibold">{pl.cancelled}</span></td>
+                        <td className="px-5 py-4 text-right font-bold text-gray-800">{pl.nativeLabel}</td>
+                        <td className="px-5 py-4 text-right font-black text-green-700">{fmt(pl.totalXof)} FCFA</td>
+                      </tr>
+                    ))}
+                    {/* RevenueCat (IAP) */}
+                    <tr className="border-b border-gray-50 bg-purple-50/40">
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">📱</span>
+                          <div>
+                            <div className="font-bold text-gray-800">RevenueCat (Apple / Google)</div>
+                            <div className="text-xs text-gray-400">IAP — abonnements App Store & Play Store</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 text-right font-semibold text-gray-500">—</td>
+                      <td className="px-5 py-4 text-right">
+                        <span className="text-purple-700 font-bold bg-purple-100 px-2 py-0.5 rounded-full text-xs">
+                          {financeStats.revenueCat.activeSubscriptions} actifs
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-right text-gray-400">—</td>
+                      <td className="px-5 py-4 text-right text-gray-400">—</td>
+                      <td className="px-5 py-4 text-right text-gray-400 text-xs">Voir RevenueCat</td>
+                      <td className="px-5 py-4 text-right text-gray-400 text-xs">dashboard.revenuecat.com</td>
+                    </tr>
+                    {/* Total */}
+                    <tr className="bg-gray-800 text-white">
+                      <td className="px-5 py-4 font-black text-sm" colSpan={5}>TOTAL (Stripe + PayDunya)</td>
+                      <td className="px-5 py-4 text-right text-xs text-gray-300">converti en FCFA</td>
+                      <td className="px-5 py-4 text-right font-black text-green-400 text-base">{fmt(financeStats.summary.totalXof)} FCFA</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Commissions détail */}
+              <div className="mt-4 bg-amber-50 border border-amber-200 rounded-2xl p-5 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+                <div>
+                  <div className="font-bold text-amber-800 mb-1">🤝 Commissions parrainage</div>
+                  <div className="text-sm text-amber-700">
+                    Total gagné par les parrains : <strong>{fmt(financeStats.commissions.totalEarned)} FCFA</strong> ·
+                    Déjà versé : <strong>{fmt(financeStats.commissions.paid)} FCFA</strong>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-amber-600 font-medium">Reste à payer</div>
+                  <div className="text-2xl font-black text-amber-800">{fmt(financeStats.commissions.dues)} FCFA</div>
+                </div>
+              </div>
+
+              {/* Net */}
+              <div className="mt-3 bg-gradient-to-r from-blue-600 to-blue-800 rounded-2xl p-5 text-white flex items-center justify-between">
+                <div>
+                  <div className="text-blue-200 text-sm font-medium">Net estimé après commissions</div>
+                  <div className="text-xs text-blue-300 mt-0.5">Total encaissé − commissions dues (RevenueCat non inclus)</div>
+                </div>
+                <div className="text-3xl font-black">{fmt(financeStats.summary.netXof)} FCFA</div>
+              </div>
+            </div>
+          )}
 
           {/* Quick links */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
