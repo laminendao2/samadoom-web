@@ -76,6 +76,13 @@ export async function GET(req: NextRequest) {
       return sum + (original - e.amountPaid);
     }, 0);
 
+    // Total des dons SuperAdmin (type: 'gift')
+    const donsSnap = await adminDb
+      .collection('referralEarnings')
+      .where('type', '==', 'gift')
+      .get();
+    const totalDons = donsSnap.docs.reduce((sum, doc) => sum + (doc.data().commission ?? 0), 0);
+
     return NextResponse.json({
       codes,
       earnings,
@@ -84,6 +91,7 @@ export async function GET(req: NextRequest) {
         totalUsage,
         totalBalance,
         totalSavings,
+        totalDons,
         totalProfs: codes.length,
       },
     });
