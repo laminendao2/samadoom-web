@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
         id: doc.id,
         type: d.type ?? 'commission',
         referrerId: d.referrerId,
-        referrerCode: d.referralCode,
+        referrerCode: d.referralCode ?? d.referrerCode ?? null,
         referredEmail: d.referredEmail ?? null,
         plan: d.plan ?? null,
         amountPaid: d.amountPaid ?? null,
@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
         currency: d.currency ?? 'XOF',
         provider: d.provider ?? 'paydunya',
         status: d.status,
+        note: d.note ?? null,
         createdAt: d.createdAt,
       };
     });

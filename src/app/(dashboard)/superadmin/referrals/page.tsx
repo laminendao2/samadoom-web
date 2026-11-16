@@ -463,7 +463,11 @@ export default function SuperAdminReferralsPage() {
                     <tr key={e.id} style={{ borderBottom: i < earnings.length - 1 ? '1px solid #f3f4f6' : 'none', background: isGift ? '#fdf2f8' : undefined }}>
                       <td style={{ padding: '12px 14px', color: '#6b7280', fontSize: 12 }}>{fmtDate(e.createdAt)}</td>
                       <td style={{ padding: '12px 14px', color: '#374151' }}>
-                        {isGift ? <span style={{ color: '#be185d', fontSize: 11, fontWeight: 600 }}>🤲 Don SuperAdmin</span> : e.referredEmail}
+                        {isGift ? (
+                          <span style={{ color: '#be185d', fontSize: 11, fontWeight: 600 }}>
+                            🤲 Don SuperAdmin{(e as any).note ? ` — ${(e as any).note}` : ''}
+                          </span>
+                        ) : e.referredEmail}
                       </td>
                       <td style={{ padding: '12px 14px' }}>
                         <span style={{
