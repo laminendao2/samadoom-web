@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { collection, getDocs, query, limit, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, limit, onSnapshot, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -144,6 +144,7 @@ export default function SuperAdminDashboard() {
   const [financeError, setFinanceError] = useState(false);
   const financeReqId = useRef(0);
   const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [retryLoading, setRetryLoading] = useState(false);
   const [retryResult, setRetryResult] = useState<{ activated: number; already: number; cancelled: number; total: number } | null>(null);
@@ -155,6 +156,17 @@ export default function SuperAdminDashboard() {
     if (!profile) return;
     if (!isSuperAdmin) { router.replace('/dashboard'); return; }
     loadAll();
+
+    // Écoute temps réel des paiements
+    const q = query(collection(db, 'payments'), orderBy('createdAt', 'desc'), limit(20));
+    setPaymentsLoading(true);
+    const unsubPayments = onSnapshot(q, (snap) => {
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Payment);
+      setRecentPayments(all);
+      setPaymentsLoading(false);
+    }, () => { setPaymentsLoading(false); });
+
+    return () => unsubPayments();
   }, [profile]);
 
   const range = periodRange(periodMode, anchor, customFrom, customTo);
@@ -214,10 +226,9 @@ export default function SuperAdminDashboard() {
 
   async function loadAll() {
     try {
-      const [ecolesSnap, usersSnap, paymentsSnap] = await Promise.all([
+      const [ecolesSnap, usersSnap] = await Promise.all([
         getDocs(collection(db, 'ecoles')),
         getDocs(collection(db, 'users')),
-        getDocs(query(collection(db, 'payments'), limit(10))),
       ]);
       const now = new Date();
       const users = usersSnap.docs.map(d => d.data());
@@ -235,9 +246,6 @@ export default function SuperAdminDashboard() {
         totalAdmins: users.filter(u => u.role === 'admin').length,
         totalParents: users.filter(u => u.role === 'parent').length,
       });
-      const allPayments = paymentsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Payment);
-      allPayments.sort((a, b) => tsToDate(b.createdAt).getTime() - tsToDate(a.createdAt).getTime());
-      setRecentPayments(allPayments.slice(0, 10));
     } finally {
       setLoading(false);
     }
@@ -505,7 +513,13 @@ export default function SuperAdminDashboard() {
           {/* Recent payments */}
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between gap-3 flex-wrap">
-              <h2 className="font-bold text-gray-900">Paiements récents</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="font-bold text-gray-900">Paiements récents</h2>
+                <span className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full font-semibold">
+                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse inline-block" />
+                  Temps réel
+                </span>
+              </div>
               <div className="flex items-center gap-3 flex-wrap">
                 {retryResult && (
                   <span className="text-xs text-gray-500 bg-gray-50 px-3 py-1 rounded-full">
@@ -519,10 +533,12 @@ export default function SuperAdminDashboard() {
                 >
                   {retryLoading ? '⏳ Vérification…' : '🔄 Régulariser Stripe'}
                 </button>
-                <span className="text-xs text-gray-400">{recentPayments.length} derniers</span>
+                <span className="text-xs text-gray-400">{paymentsLoading ? 'Chargement…' : `${recentPayments.length} derniers`}</span>
               </div>
             </div>
-            {recentPayments.length === 0 ? (
+            {paymentsLoading ? (
+              <div className="py-12 text-center text-gray-400 text-sm animate-pulse">Chargement des paiements…</div>
+            ) : recentPayments.length === 0 ? (
               <div className="py-12 text-center text-gray-400 text-sm">Aucun paiement enregistré</div>
             ) : (
               <div className="divide-y divide-gray-50">
