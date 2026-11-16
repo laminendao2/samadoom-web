@@ -32,6 +32,7 @@ interface Totals {
   totalUsage: number;
   totalBalance: number;
   totalSavings: number;
+  totalDons: number;
   totalProfs: number;
 }
 
@@ -289,6 +290,7 @@ export default function SuperAdminReferralsPage() {
             { label: 'Commissions dues', value: `${fmt(totals.totalBalance)} FCFA`, icon: '💰', color: '#b45309', bg: '#fffbeb', border: '#fde68a' },
             { label: 'Total versé profs', value: `${fmt(totals.totalCommissions)} FCFA`, icon: '📈', color: '#166534', bg: '#f0fdf4', border: '#bbf7d0' },
             { label: 'Économies clients', value: `${fmt(totals.totalSavings)} FCFA`, icon: '🎁', color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
+            { label: 'Dons SuperAdmin', value: `${fmt(totals.totalDons)} FCFA`, icon: '🤲', color: '#be185d', bg: '#fdf2f8', border: '#fbcfe8' },
           ].map(stat => (
             <div key={stat.label} style={{
               background: stat.bg,
