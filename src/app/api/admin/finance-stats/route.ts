@@ -19,6 +19,26 @@ function displayAmount(amount: number, currency: string): string {
   return `${amount.toLocaleString()} FCFA`;
 }
 
+/** Date d'un champ Firestore : chaîne ISO, Timestamp Admin ou Date. */
+function toDate(v: unknown): Date | null {
+  if (!v) return null;
+  if (typeof v === 'string' || typeof v === 'number') {
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (v instanceof Date) return v;
+  if (typeof (v as { toDate?: unknown }).toDate === 'function') {
+    return (v as { toDate: () => Date }).toDate();
+  }
+  return null;
+}
+
+function parseBound(raw: string | null): Date | null {
+  if (!raw) return null;
+  const d = new Date(raw);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 export async function GET(req: NextRequest) {
   const authUser = await verifyRequestUser(req);
   if (!authUser) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
@@ -30,8 +50,27 @@ export async function GET(req: NextRequest) {
     (Array.isArray(userData?.roles) && userData.roles.includes('superadmin'));
   if (!isSuperAdmin) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
 
+  // ── Période demandée : [from, to[ en ISO (bornes calculées côté client,
+  //    dans le fuseau de l'utilisateur). Sans paramètre → tout l'historique.
+  const sp = req.nextUrl.searchParams;
+  const from = parseBound(sp.get('from'));
+  const to   = parseBound(sp.get('to'));
+  if ((sp.get('from') && !from) || (sp.get('to') && !to) || (from && to && from >= to)) {
+    return NextResponse.json({ error: 'Période invalide' }, { status: 400 });
+  }
+  const hasPeriod = Boolean(from || to);
+  const inPeriod = (v: unknown): boolean => {
+    if (!hasPeriod) return true;
+    const d = toDate(v);
+    if (!d) return false;               // sans date → exclu d'une vue filtrée
+    if (from && d < from) return false;
+    if (to && d >= to) return false;
+    return true;
+  };
+
   // ── Charger tous les paiements ─────────────────────────────────────────────
   const paymentsSnap = await adminDb.collection('payments').get();
+  let paymentsInPeriod = 0;
 
   interface PlatformStats {
     count: number;
@@ -52,6 +91,8 @@ export async function GET(req: NextRequest) {
 
   for (const doc of paymentsSnap.docs) {
     const p = doc.data();
+    if (!inPeriod(p.createdAt)) continue;
+    paymentsInPeriod++;
     const provider = (p.provider ?? 'paydunya').toLowerCase();
     const currency  = (p.currency ?? 'XOF').toUpperCase();
     const amount    = typeof p.amount === 'number' ? p.amount : 0;
@@ -83,9 +124,24 @@ export async function GET(req: NextRequest) {
     totalCommissionsPaid   += ((d.totalEarned ?? 0) - (d.balance ?? 0));
   }
 
+  // ── Commissions générées sur la période (referralEarnings, en XOF) ────────
+  // Les soldes ci-dessus (dues / payées) sont des cumuls actuels : ils ne
+  // peuvent pas être découpés par période. Seuls les gains datés le peuvent.
+  let commissionsEarnedInPeriod = totalCommissionsEarned;
+  if (hasPeriod) {
+    const earningsSnap = await adminDb.collection('referralEarnings').get();
+    commissionsEarnedInPeriod = 0;
+    for (const doc of earningsSnap.docs) {
+      const e = doc.data();
+      if (!inPeriod(e.createdAt)) continue;
+      commissionsEarnedInPeriod += typeof e.commission === 'number' ? e.commission : 0;
+    }
+  }
+
   // ── Totaux Stripe + PayDunya ──────────────────────────────────────────────
   const totalXof = Object.values(platforms).reduce((s, p) => s + p.totalXof, 0);
   const netXof   = totalXof - totalCommissionsDues;
+  const netPeriodXof = totalXof - commissionsEarnedInPeriod;
 
   // ── RevenueCat : appel direct à l'API REST v2 ─────────────────────────────
   // Clé secrète dans REVENUECAT_SECRET_KEY (Vercel env vars)
@@ -171,11 +227,18 @@ export async function GET(req: NextRequest) {
       totalEarned: totalCommissionsEarned,
       dues:  totalCommissionsDues,
       paid:  totalCommissionsPaid,
+      earnedInPeriod: commissionsEarnedInPeriod,
     },
     summary: {
       totalXof,
       netXof,
-      totalPayments: paymentsSnap.size,
+      netPeriodXof,
+      totalPayments: paymentsInPeriod,
+    },
+    period: {
+      filtered: hasPeriod,
+      from: from ? from.toISOString() : null,
+      to:   to   ? to.toISOString()   : null,
     },
   });
 }
