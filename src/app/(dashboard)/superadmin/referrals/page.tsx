@@ -330,7 +330,7 @@ export default function SuperAdminReferralsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                  {['Professeur', 'Code', 'Filleuls', 'Total gagné', 'Solde dû', 'Depuis', ''].map(h => (
+                  {['Professeur', 'Code', 'Filleuls', 'Total gagné', 'Solde dû', 'Depuis'].map(h => (
                     <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 700, color: '#374151', fontSize: 12 }}>{h}</th>
                   ))}
                 </tr>
@@ -340,8 +340,21 @@ export default function SuperAdminReferralsPage() {
                   <React.Fragment key={c.code}>
                   <tr style={{ borderBottom: i < codes.length - 1 && giftCode !== c.code ? '1px solid #f3f4f6' : 'none' }}>
                     <td style={{ padding: '12px 16px' }}>
-                      <p style={{ fontWeight: 700, color: '#111827', margin: 0 }}>{c.userName}</p>
-                      <p style={{ fontSize: 11, color: '#9ca3af', margin: 0 }}>{c.userEmail}</p>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div>
+                          <p style={{ fontWeight: 700, color: '#111827', margin: 0 }}>{c.userName}</p>
+                          <p style={{ fontSize: 11, color: '#9ca3af', margin: 0 }}>{c.userEmail}</p>
+                        </div>
+                        <button
+                          onClick={() => { setGiftCode(giftCode === c.code ? null : c.code); setGiftMsg(''); setGiftAmount(''); setGiftNote(''); }}
+                          style={{
+                            background: giftCode === c.code ? '#fef3c7' : '#f9fafb',
+                            border: `1px solid ${giftCode === c.code ? '#f59e0b' : '#e5e7eb'}`,
+                            borderRadius: 8, padding: '3px 8px', cursor: 'pointer',
+                            fontSize: 12, fontWeight: 600, color: '#92400e', whiteSpace: 'nowrap',
+                          }}
+                        >🎁</button>
+                      </div>
                     </td>
                     <td style={{ padding: '12px 16px' }}>
                       <span style={{
@@ -363,22 +376,11 @@ export default function SuperAdminReferralsPage() {
                       </span>
                     </td>
                     <td style={{ padding: '12px 16px', color: '#9ca3af', fontSize: 12 }}>{fmtDate(c.createdAt)}</td>
-                    <td style={{ padding: '8px 16px' }}>
-                      <button
-                        onClick={() => { setGiftCode(giftCode === c.code ? null : c.code); setGiftMsg(''); setGiftAmount(''); setGiftNote(''); }}
-                        style={{
-                          background: giftCode === c.code ? '#fef3c7' : '#f9fafb',
-                          border: `1px solid ${giftCode === c.code ? '#f59e0b' : '#e5e7eb'}`,
-                          borderRadius: 8, padding: '4px 10px', cursor: 'pointer',
-                          fontSize: 13, fontWeight: 600, color: '#92400e',
-                        }}
-                      >🎁 Don</button>
-                    </td>
                   </tr>
                   {/* Panel don inline */}
                   {giftCode === c.code && (
                     <tr style={{ background: '#fffbeb' }}>
-                      <td colSpan={7} style={{ padding: '12px 16px' }}>
+                      <td colSpan={6} style={{ padding: '12px 16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                           <span style={{ fontWeight: 600, color: '#92400e', fontSize: 13 }}>
                             🎁 Don à {c.userName}
