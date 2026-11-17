@@ -67,7 +67,12 @@ export async function POST(req: NextRequest) {
       referralAttachedByAdmin: true,
       referralAttachedAt: nowIso,
     });
-    tx.set(adminDb.collection('users').doc(p.userId), { savedReferralCode: referralCode }, { merge: true });
+    const buyerSnap = await tx.get(adminDb.collection('users').doc(p.userId));
+    const prevCode = buyerSnap.data()?.savedReferralCode as string | undefined;
+    tx.set(adminDb.collection('users').doc(p.userId), {
+      savedReferralCode: referralCode,
+      ...(prevCode && prevCode !== referralCode ? { savedReferralCodePrev: prevCode, savedReferralCodeChangedByAdmin: nowIso } : {}),
+    }, { merge: true });
     tx.set(earningRef, {
       referrerId: code.userId,
       referredId: p.userId,

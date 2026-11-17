@@ -174,7 +174,9 @@ export async function finalizePaidPayment(
       lastPaymentProvider: payment.provider ?? 'paydunya',
       cancelAtPeriodEnd: false,
     };
-    if (payment.referralCode) userUpdate.savedReferralCode = payment.referralCode;
+    // Ne pas écraser le savedReferralCode existant — seul un SuperAdmin peut le changer
+    const existingSavedCode = userSnap.data()?.savedReferralCode as string | undefined;
+    if (payment.referralCode && !existingSavedCode) userUpdate.savedReferralCode = payment.referralCode;
     tx.set(userRef, userUpdate, { merge: true });
 
     // ── Commissions multi-niveaux (web uniquement : PayDunya / Stripe) ──────
