@@ -91,6 +91,51 @@ export default function SuperAdminReferralsPage() {
   const [fixLoading, setFixLoading] = useState(false);
   const [fixResult, setFixResult] = useState<{ earningsFixed: number; codesUpdated: number } | null>(null);
 
+  // Paramètres commissions par niveau
+  type LvlSettings = { enabled: boolean; requiresPro: boolean; rate: number };
+  const [lvlSettings, setLvlSettings] = useState<LvlSettings[]>([
+    { enabled: true, requiresPro: false, rate: 0.10 },
+    { enabled: true, requiresPro: false, rate: 0.035 },
+    { enabled: true, requiresPro: false, rate: 0.015 },
+  ]);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsMsg, setSettingsMsg] = useState('');
+  const [showSettings, setShowSettings] = useState(false);
+
+  async function loadSettings() {
+    if (!user) return;
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/superadmin/referral-settings', { headers: { Authorization: `Bearer ${idToken}` } });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.levels)) setLvlSettings(data.levels);
+      }
+    } catch { /* silencieux */ }
+  }
+
+  async function saveSettings() {
+    if (!user) return;
+    setSettingsLoading(true);
+    setSettingsMsg('');
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/superadmin/referral-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ levels: lvlSettings }),
+      });
+      const data = await res.json();
+      if (res.ok) setSettingsMsg('✅ Paramètres sauvegardés');
+      else setSettingsMsg(`❌ ${data.error || 'Erreur'}`);
+    } catch {
+      setSettingsMsg('❌ Erreur réseau');
+    } finally {
+      setSettingsLoading(false);
+      setTimeout(() => setSettingsMsg(''), 3000);
+    }
+  }
+
   // Don / bonus
   const [giftCode, setGiftCode] = useState<string | null>(null);
   const [giftAmount, setGiftAmount] = useState('');
@@ -187,14 +232,109 @@ export default function SuperAdminReferralsPage() {
 
   useEffect(() => {
     loadData();
+    loadSettings();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   if (loading) return <div style={{ padding: 32, color: '#6b7280', textAlign: 'center' }}>Chargement…</div>;
   if (error) return <div style={{ padding: 32, color: '#dc2626' }}>{error}</div>;
 
+  const LEVEL_LABELS = ['Niveau 1 — Parrain direct', 'Niveau 2 — Parrain du parrain', 'Niveau 3 — Arrière-parrain'];
+
   return (
     <div style={{ padding: '32px 24px', maxWidth: 960, margin: '0 auto' }}>
+
+      {/* ⚙️ Paramètres commissions */}
+      <div style={{ background: '#faf5ff', border: '1.5px solid #e9d5ff', borderRadius: 16, padding: '20px 24px', marginBottom: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <h2 style={{ fontSize: 16, fontWeight: 800, color: '#6b21a8', margin: 0 }}>⚙️ Paramètres des commissions</h2>
+            <p style={{ fontSize: 13, color: '#7c3aed', margin: '4px 0 0' }}>
+              Configurez les conditions d&apos;activation par niveau de parrainage
+            </p>
+          </div>
+          <button
+            onClick={() => setShowSettings(s => !s)}
+            style={{ padding: '8px 16px', background: showSettings ? '#ede9fe' : '#7c3aed', color: showSettings ? '#5b21b6' : '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+            {showSettings ? '▲ Fermer' : '▼ Modifier'}
+          </button>
+        </div>
+
+        {/* Résumé compact toujours visible */}
+        <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
+          {lvlSettings.map((lvl, i) => (
+            <div key={i} style={{
+              flex: 1, minWidth: 160,
+              background: lvl.enabled ? '#fff' : '#f3f4f6',
+              border: `1.5px solid ${lvl.enabled ? '#c4b5fd' : '#e5e7eb'}`,
+              borderRadius: 10, padding: '10px 14px',
+              opacity: lvl.enabled ? 1 : 0.6,
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#7c3aed', marginBottom: 4 }}>
+                N{i + 1} · {(lvl.rate * 100).toFixed(1).replace('.0', '')}%
+              </div>
+              <div style={{ fontSize: 11, color: '#6b7280' }}>
+                {!lvl.enabled ? '🔴 Désactivé' : lvl.requiresPro ? '🔒 Pro requis' : '✅ Tout le monde'}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Formulaire détaillé */}
+        {showSettings && (
+          <div style={{ marginTop: 20, borderTop: '1px solid #e9d5ff', paddingTop: 20 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {lvlSettings.map((lvl, i) => (
+                <div key={i} style={{ background: '#fff', border: '1px solid #ede9fe', borderRadius: 12, padding: '14px 18px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div>
+                      <span style={{ fontWeight: 700, color: '#111827', fontSize: 14 }}>
+                        {LEVEL_LABELS[i]}
+                      </span>
+                      <span style={{ marginLeft: 8, fontSize: 13, color: '#7c3aed', fontWeight: 600 }}>
+                        {(lvl.rate * 100).toFixed(1).replace('.0', '')}%
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {/* Toggle Activé */}
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#374151' }}>
+                        <input
+                          type="checkbox"
+                          checked={lvl.enabled}
+                          onChange={e => setLvlSettings(prev => prev.map((l, j) => j === i ? { ...l, enabled: e.target.checked } : l))}
+                          style={{ width: 16, height: 16, accentColor: '#7c3aed' }}
+                        />
+                        Niveau actif
+                      </label>
+                      {/* Toggle Pro requis */}
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: lvl.enabled ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 600, color: lvl.enabled ? '#374151' : '#9ca3af' }}>
+                        <input
+                          type="checkbox"
+                          checked={lvl.requiresPro}
+                          disabled={!lvl.enabled}
+                          onChange={e => setLvlSettings(prev => prev.map((l, j) => j === i ? { ...l, requiresPro: e.target.checked } : l))}
+                          style={{ width: 16, height: 16, accentColor: '#7c3aed' }}
+                        />
+                        Parrain doit être Pro
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
+              <button
+                onClick={saveSettings}
+                disabled={settingsLoading}
+                style={{ padding: '10px 24px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: settingsLoading ? 'not-allowed' : 'pointer', opacity: settingsLoading ? 0.6 : 1 }}>
+                {settingsLoading ? 'Enregistrement…' : '💾 Sauvegarder'}
+              </button>
+              {settingsMsg && <span style={{ fontSize: 13, color: settingsMsg.startsWith('✅') ? '#166534' : '#dc2626', fontWeight: 600 }}>{settingsMsg}</span>}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* En-tête */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 28 }}>
         <div>
