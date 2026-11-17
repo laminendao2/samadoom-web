@@ -4,7 +4,10 @@ import { adminDb } from '@/lib/firebase-admin';
 import { computePlanExpiry } from '@/lib/plans';
 import { stripeCentsToXof } from '@/lib/fx';
 
-export const REFERRAL_COMMISSION = 0.10; // 10 % du montant payé pour le parrain
+/** Taux de commission par niveau (web uniquement — PayDunya / Stripe) */
+export const REFERRAL_RATES = [0.10, 0.035, 0.015] as const; // 10% · 3,5% · 1,5% = 15%
+/** @deprecated utiliser REFERRAL_RATES[0] */
+export const REFERRAL_COMMISSION = REFERRAL_RATES[0];
 
 /**
  * L'acheteur a-t-il réellement bénéficié de la réduction parrainage sur ce paiement ?
@@ -147,16 +150,6 @@ export async function finalizePaidPayment(
       }
     }
 
-    const hasReferral = Boolean(payment.referralCode && payment.referrerId)
-      && payment.referrerId !== payment.userId;
-    const referrerSnap = hasReferral
-      ? await tx.get(adminDb.collection('users').doc(payment.referrerId))
-      : null;
-    const codeRef = hasReferral
-      ? adminDb.collection('referralCodes').doc(payment.referralCode)
-      : null;
-    const codeSnap = codeRef ? await tx.get(codeRef) : null;
-
     const now = new Date();
     const nowIso = now.toISOString();
 
@@ -184,42 +177,86 @@ export async function finalizePaidPayment(
     if (payment.referralCode) userUpdate.savedReferralCode = payment.referralCode;
     tx.set(userRef, userUpdate, { merge: true });
 
-    // Commission du parrain : Pro vérifié soit au moment du paiement (referrerId déjà validé
-    // dans create-checkout quand discountApplied=true), soit en temps réel sinon.
-    const referrerValidated = referralDiscountGranted(payment)
-      || isUserPro(referrerSnap?.data(), now);
-    if (hasReferral && codeRef && codeSnap?.exists
-        && codeSnap.data()?.userId === payment.referrerId
-        && referrerValidated) {
-      // Normaliser le montant en FCFA pour la commission (base commune)
-      // Stripe stocke en centimes USD → convertir au taux effectif du moment
+    // ── Commissions multi-niveaux (web uniquement : PayDunya / Stripe) ──────
+    // Niveau 1 = parrain direct (10%), Niveau 2 = parrain du parrain (3,5%),
+    // Niveau 3 = arrière-parrain (1,5%). Aucune condition d'abonnement pour l'instant.
+    if (payment.referralCode && payment.referrerId
+        && payment.referrerId !== payment.userId) {
+
+      // Normaliser le montant en FCFA (Stripe stocke en centimes USD)
       const paymentCurrency = (payment.currency ?? 'XOF').toUpperCase();
       const amountInXof = (paymentCurrency === 'USD' || paymentCurrency === 'EUR')
         ? await stripeCentsToXof(payment.amount, paymentCurrency.toLowerCase() as 'usd' | 'eur')
         : payment.amount;
-      const commission = Math.round(amountInXof * REFERRAL_COMMISSION);
-      // Id déterministe : un paiement ne peut créer qu'une seule ligne de gain
-      tx.set(adminDb.collection('referralEarnings').doc(`pay_${paymentId}`), {
-        referrerId: payment.referrerId,
-        referredId: payment.userId,
-        referredEmail: payment.userEmail ?? '',
-        referralCode: payment.referralCode,
-        plan: payment.plan,
-        amountPaid: amountInXof,       // toujours en XOF pour l'affichage cohérent
-        amountPaidOriginal: payment.amount, // montant brut dans la devise d'origine
-        commission,                    // en XOF
-        currency: 'XOF',               // normalisé en XOF
-        provider: payment.provider ?? 'paydunya',
-        paymentToken: paymentId,
-        status: 'confirmed',
-        createdAt: nowIso,
-      });
-      const code = codeSnap.data()!;
-      tx.update(codeRef, {
-        balance: (code.balance ?? 0) + commission,
-        totalEarned: (code.totalEarned ?? 0) + commission,
-        usageCount: (code.usageCount ?? 0) + 1,
-      });
+
+      // Construire la chaîne de parrainage : [(code, referrerId), niveau2, niveau3]
+      type ChainEntry = { code: string; referrerId: string };
+      const chain: ChainEntry[] = [{ code: payment.referralCode, referrerId: payment.referrerId }];
+
+      // Niveau 2 : parrain du parrain
+      const l1UserSnap = await tx.get(adminDb.collection('users').doc(payment.referrerId));
+      const l1SavedCode = l1UserSnap.data()?.savedReferralCode as string | undefined;
+      if (l1SavedCode && l1SavedCode !== payment.referralCode) {
+        const l1CodeSnap = await tx.get(adminDb.collection('referralCodes').doc(l1SavedCode));
+        if (l1CodeSnap.exists
+            && l1CodeSnap.data()?.userId !== payment.userId
+            && l1CodeSnap.data()?.userId !== payment.referrerId) {
+          chain.push({ code: l1SavedCode, referrerId: l1CodeSnap.data()!.userId });
+
+          // Niveau 3 : parrain du parrain du parrain
+          const l2UserId = l1CodeSnap.data()!.userId as string;
+          const l2UserSnap = await tx.get(adminDb.collection('users').doc(l2UserId));
+          const l2SavedCode = l2UserSnap.data()?.savedReferralCode as string | undefined;
+          if (l2SavedCode
+              && l2SavedCode !== payment.referralCode
+              && l2SavedCode !== l1SavedCode) {
+            const l2CodeSnap = await tx.get(adminDb.collection('referralCodes').doc(l2SavedCode));
+            if (l2CodeSnap.exists
+                && l2CodeSnap.data()?.userId !== payment.userId
+                && l2CodeSnap.data()?.userId !== payment.referrerId
+                && l2CodeSnap.data()?.userId !== l2UserId) {
+              chain.push({ code: l2SavedCode, referrerId: l2CodeSnap.data()!.userId });
+            }
+          }
+        }
+      }
+
+      // Créditer chaque niveau (idempotent : doc ID déterministe par paiement + niveau)
+      for (let i = 0; i < chain.length && i < REFERRAL_RATES.length; i++) {
+        const { code, referrerId } = chain[i];
+        const rate = REFERRAL_RATES[i];
+        const commission = Math.round(amountInXof * rate);
+        const level = i + 1;
+
+        tx.set(adminDb.collection('referralEarnings').doc(`pay_${paymentId}_l${level}`), {
+          level,
+          referrerId,
+          referredId: payment.userId,
+          referredEmail: payment.userEmail ?? '',
+          referralCode: code,
+          plan: payment.plan,
+          amountPaid: amountInXof,
+          amountPaidOriginal: payment.amount,
+          commission,
+          rate,
+          currency: 'XOF',
+          provider: payment.provider ?? 'paydunya',
+          paymentToken: paymentId,
+          status: 'confirmed',
+          createdAt: nowIso,
+        });
+
+        const codeRef = adminDb.collection('referralCodes').doc(code);
+        const codeSnap = await tx.get(codeRef);
+        if (codeSnap.exists && codeSnap.data()?.userId === referrerId) {
+          const codeData = codeSnap.data()!;
+          tx.update(codeRef, {
+            balance: (codeData.balance ?? 0) + commission,
+            totalEarned: (codeData.totalEarned ?? 0) + commission,
+            ...(level === 1 ? { usageCount: (codeData.usageCount ?? 0) + 1 } : {}),
+          });
+        }
+      }
     }
 
     return { result: 'activated' as const, expiresAt };
