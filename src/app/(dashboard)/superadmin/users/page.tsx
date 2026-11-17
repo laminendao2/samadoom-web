@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { collection, getDocs, doc, updateDoc, Timestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { db, auth } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 
@@ -51,7 +51,7 @@ const ROLE_COLORS: Record<string, string> = {
   admin: '#16a34a', superadmin: '#dc2626',
 };
 
-type ModalMode = 'grant' | 'revoke' | 'roles';
+type ModalMode = 'grant' | 'revoke' | 'roles' | 'referral';
 
 export default function SuperAdminUsersPage() {
   const { profile } = useAuth();
@@ -71,6 +71,8 @@ export default function SuperAdminUsersPage() {
   const [editMainRole, setEditMainRole] = useState('');
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
+  const [referralCode, setReferralCode] = useState('');
+  const [referralResult, setReferralResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const isSuperAdmin = profile?.role === 'superadmin' || (profile?.roles ?? []).includes('superadmin');
 
@@ -187,6 +189,32 @@ export default function SuperAdminUsersPage() {
     setModal(null);
     setSaving(false);
     loadUsers();
+  }
+
+  async function handleReferral() {
+    if (!modal) return;
+    const code = referralCode.trim().toUpperCase();
+    if (!code) return;
+    setSaving(true);
+    try {
+      const user = modal.user as UserRow & { lastPaymentToken?: string };
+      const idToken = await auth.currentUser?.getIdToken(true);
+      const resp = await fetch('/api/admin/attach-referral', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ paymentId: user.lastPaymentToken, referralCode: code }),
+      });
+      const json = await resp.json();
+      if (resp.ok && json.result === 'credited') {
+        setReferralResult({ ok: true, message: `✅ Commission de ${json.commission} FCFA créditée au parrain (${json.referralCode}).` });
+        loadUsers();
+      } else {
+        setReferralResult({ ok: false, message: `❌ ${json.error || 'Erreur inconnue'}` });
+      }
+    } catch {
+      setReferralResult({ ok: false, message: '❌ Erreur réseau' });
+    }
+    setSaving(false);
   }
 
   async function handleRevoke() {
@@ -328,6 +356,10 @@ export default function SuperAdminUsersPage() {
                               ✕ Révoquer
                             </button>
                           )}
+                          <button onClick={() => { setReferralCode(''); setReferralResult(null); setModal({ user: u, mode: 'referral' }); }}
+                            className="px-3 py-1.5 bg-purple-100 text-purple-700 rounded-lg text-xs font-semibold hover:bg-purple-200 transition-colors">
+                            🔗 Parrainage
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -416,6 +448,43 @@ export default function SuperAdminUsersPage() {
                   <button onClick={handleGrant} disabled={!grantDate || saving}
                     className="flex-1 py-3 rounded-xl bg-green-700 text-white text-sm font-bold disabled:opacity-50 hover:bg-green-800 transition-colors">
                     {saving ? 'Enregistrement…' : '✓ Confirmer'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {modal.mode === 'referral' && (
+              <>
+                <h3 className="text-lg font-black text-gray-900 mb-1">🔗 Attribuer un parrainage</h3>
+                <p className="text-sm text-gray-500 mb-5">
+                  Pour <span className="font-semibold text-gray-800">{modal.user.name || modal.user.email}</span>
+                  {(modal.user as UserRow & { lastPaymentToken?: string }).lastPaymentToken
+                    ? <span className="ml-1 text-xs text-gray-400">(dernier paiement : {(modal.user as UserRow & { lastPaymentToken?: string }).lastPaymentToken})</span>
+                    : <span className="ml-1 text-xs text-orange-500">⚠️ Aucun paiement trouvé</span>
+                  }
+                </p>
+                {modal.user.savedReferralCode && (
+                  <p className="text-xs text-purple-700 bg-purple-50 rounded-xl px-3 py-2 mb-4">
+                    Code parrain actuel : <strong>{modal.user.savedReferralCode}</strong>
+                  </p>
+                )}
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Code de parrainage</label>
+                <input
+                  value={referralCode}
+                  onChange={e => { setReferralCode(e.target.value.toUpperCase()); setReferralResult(null); }}
+                  placeholder="ex: ABC123"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-purple-200 mb-4"
+                />
+                {referralResult && (
+                  <p className={`text-sm rounded-xl px-3 py-2 mb-4 ${referralResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {referralResult.message}
+                  </p>
+                )}
+                <div className="flex gap-3">
+                  <button onClick={() => setModal(null)} className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">Fermer</button>
+                  <button onClick={handleReferral} disabled={!referralCode.trim() || saving}
+                    className="flex-1 py-3 rounded-xl bg-purple-700 text-white text-sm font-bold disabled:opacity-50 hover:bg-purple-800 transition-colors">
+                    {saving ? 'Envoi…' : '🔗 Créditer'}
                   </button>
                 </div>
               </>
