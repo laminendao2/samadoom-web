@@ -135,6 +135,18 @@ export async function finalizePaidPayment(
     const userRef = adminDb.collection('users').doc(payment.userId);
     const userSnap = await tx.get(userRef);
 
+    // Auto-lookup du code de parrainage sauvegardé si le paiement n'en a pas
+    if (!payment.referralCode) {
+      const savedCode = userSnap.data()?.savedReferralCode as string | undefined;
+      if (savedCode) {
+        const codeSnap = await tx.get(adminDb.collection('referralCodes').doc(savedCode));
+        if (codeSnap.exists && codeSnap.data()?.userId !== payment.userId) {
+          payment.referralCode = savedCode;
+          payment.referrerId = codeSnap.data()!.userId;
+        }
+      }
+    }
+
     const hasReferral = Boolean(payment.referralCode && payment.referrerId)
       && payment.referrerId !== payment.userId;
     const referrerSnap = hasReferral
