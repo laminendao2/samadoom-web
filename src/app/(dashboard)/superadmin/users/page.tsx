@@ -191,6 +191,7 @@ export default function SuperAdminUsersPage() {
     loadUsers();
   }
 
+  // Créditer un paiement passé (attach-referral)
   async function handleReferral() {
     if (!modal) return;
     const code = referralCode.trim().toUpperCase();
@@ -207,6 +208,35 @@ export default function SuperAdminUsersPage() {
       const json = await resp.json();
       if (resp.ok && json.result === 'credited') {
         setReferralResult({ ok: true, message: `✅ Commission de ${json.commission} FCFA créditée au parrain (${json.referralCode}).` });
+        loadUsers();
+      } else {
+        setReferralResult({ ok: false, message: `❌ ${json.error || 'Erreur inconnue'}` });
+      }
+    } catch {
+      setReferralResult({ ok: false, message: '❌ Erreur réseau' });
+    }
+    setSaving(false);
+  }
+
+  // Changer / effacer le parrain sauvegardé (SuperAdmin uniquement)
+  async function handleSetSavedReferral(clearOnly = false) {
+    if (!modal) return;
+    const code = clearOnly ? '' : referralCode.trim().toUpperCase();
+    if (!clearOnly && !code) return;
+    setSaving(true);
+    try {
+      const idToken = await auth.currentUser?.getIdToken(true);
+      const resp = await fetch('/api/superadmin/set-saved-referral', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ userId: modal.user.uid, referralCode: code }),
+      });
+      const json = await resp.json();
+      if (resp.ok) {
+        const msg = clearOnly
+          ? '✅ Parrain sauvegardé effacé.'
+          : `✅ Parrain sauvegardé défini : ${json.referralCode}.${json.previous ? ` (remplaçait ${json.previous})` : ''}`;
+        setReferralResult({ ok: true, message: msg });
         loadUsers();
       } else {
         setReferralResult({ ok: false, message: `❌ ${json.error || 'Erreur inconnue'}` });
@@ -455,38 +485,73 @@ export default function SuperAdminUsersPage() {
 
             {modal.mode === 'referral' && (
               <>
-                <h3 className="text-lg font-black text-gray-900 mb-1">🔗 Attribuer un parrainage</h3>
-                <p className="text-sm text-gray-500 mb-5">
-                  Pour <span className="font-semibold text-gray-800">{modal.user.name || modal.user.email}</span>
-                  {(modal.user as UserRow & { lastPaymentToken?: string }).lastPaymentToken
-                    ? <span className="ml-1 text-xs text-gray-400">(dernier paiement : {(modal.user as UserRow & { lastPaymentToken?: string }).lastPaymentToken})</span>
-                    : <span className="ml-1 text-xs text-orange-500">⚠️ Aucun paiement trouvé</span>
-                  }
+                <h3 className="text-lg font-black text-gray-900 mb-1">🔗 Parrainage</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  <span className="font-semibold text-gray-800">{modal.user.name || modal.user.email}</span>
                 </p>
-                {modal.user.savedReferralCode && (
-                  <p className="text-xs text-purple-700 bg-purple-50 rounded-xl px-3 py-2 mb-4">
-                    Code parrain actuel : <strong>{modal.user.savedReferralCode}</strong>
-                  </p>
-                )}
+
+                {/* Parrain sauvegardé */}
+                <div className="mb-5 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Parrain sauvegardé</p>
+                  {modal.user.savedReferralCode
+                    ? <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-purple-700">{modal.user.savedReferralCode}</span>
+                        <span className="text-xs text-gray-400">(appliqué aux prochains paiements)</span>
+                        <button onClick={() => { setReferralResult(null); handleSetSavedReferral(true); }}
+                          disabled={saving}
+                          className="ml-auto text-xs text-red-500 hover:text-red-700 font-semibold disabled:opacity-50">
+                          ✕ Effacer
+                        </button>
+                      </div>
+                    : <p className="text-sm text-gray-400 italic">Aucun</p>
+                  }
+                </div>
+
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Code de parrainage</label>
                 <input
                   value={referralCode}
                   onChange={e => { setReferralCode(e.target.value.toUpperCase()); setReferralResult(null); }}
                   placeholder="ex: ABC123"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-purple-200 mb-4"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-purple-200 mb-3"
                 />
+
                 {referralResult && (
-                  <p className={`text-sm rounded-xl px-3 py-2 mb-4 ${referralResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                  <p className={`text-sm rounded-xl px-3 py-2 mb-3 ${referralResult.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
                     {referralResult.message}
                   </p>
                 )}
-                <div className="flex gap-3">
-                  <button onClick={() => setModal(null)} className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">Fermer</button>
-                  <button onClick={handleReferral} disabled={!referralCode.trim() || saving}
-                    className="flex-1 py-3 rounded-xl bg-purple-700 text-white text-sm font-bold disabled:opacity-50 hover:bg-purple-800 transition-colors">
-                    {saving ? 'Envoi…' : '🔗 Créditer'}
+
+                {/* Action 1 : changer le parrain sauvegardé */}
+                {modal.user.savedReferralCode && (
+                  <p className="text-xs text-orange-600 bg-orange-50 rounded-xl px-3 py-2 mb-3">
+                    ⚠️ Un parrain est déjà défini. Seul un SuperAdmin peut le remplacer.
+                  </p>
+                )}
+                <div className="flex gap-2 mb-3">
+                  <button onClick={() => { setReferralResult(null); handleSetSavedReferral(false); }}
+                    disabled={!referralCode.trim() || saving}
+                    className="flex-1 py-2.5 rounded-xl bg-purple-100 text-purple-800 text-sm font-bold disabled:opacity-50 hover:bg-purple-200 transition-colors">
+                    {saving ? '…' : modal.user.savedReferralCode ? '🔄 Remplacer le parrain' : '💾 Définir le parrain'}
                   </button>
                 </div>
+
+                {/* Action 2 : créditer un paiement passé */}
+                <div className="border-t border-gray-100 pt-3 mt-1">
+                  <p className="text-xs text-gray-500 mb-2">
+                    Créditer commission sur dernier paiement :{' '}
+                    {(modal.user as UserRow & { lastPaymentToken?: string }).lastPaymentToken
+                      ? <span className="font-mono text-gray-700">{(modal.user as UserRow & { lastPaymentToken?: string }).lastPaymentToken}</span>
+                      : <span className="text-orange-500">⚠️ aucun paiement trouvé</span>
+                    }
+                  </p>
+                  <button onClick={handleReferral}
+                    disabled={!referralCode.trim() || !(modal.user as UserRow & { lastPaymentToken?: string }).lastPaymentToken || saving}
+                    className="w-full py-2.5 rounded-xl bg-purple-700 text-white text-sm font-bold disabled:opacity-50 hover:bg-purple-800 transition-colors">
+                    {saving ? 'Envoi…' : '🔗 Créditer commission'}
+                  </button>
+                </div>
+
+                <button onClick={() => setModal(null)} className="w-full mt-3 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">Fermer</button>
               </>
             )}
 
