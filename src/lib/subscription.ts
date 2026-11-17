@@ -221,12 +221,28 @@ export async function finalizePaidPayment(
         }
       }
 
+      // Lire la config des conditions par niveau (si absente → valeurs par défaut)
+      const configSnap = await tx.get(adminDb.collection('config').doc('referralSettings'));
+      const configLevels = (configSnap.data()?.levels ?? []) as Array<{
+        enabled?: boolean; requiresPro?: boolean; rate?: number;
+      }>;
+
       // Créditer chaque niveau (idempotent : doc ID déterministe par paiement + niveau)
       for (let i = 0; i < chain.length && i < REFERRAL_RATES.length; i++) {
         const { code, referrerId } = chain[i];
         const rate = REFERRAL_RATES[i];
         const commission = Math.round(amountInXof * rate);
         const level = i + 1;
+
+        // Vérifier les conditions configurées pour ce niveau
+        const lvlConfig = configLevels[i];
+        if (lvlConfig?.enabled === false) continue; // niveau désactivé
+
+        if (lvlConfig?.requiresPro) {
+          // Vérifier que le parrain de ce niveau est Pro
+          const referrerUserSnap = await tx.get(adminDb.collection('users').doc(referrerId));
+          if (!isUserPro(referrerUserSnap.data(), now)) continue;
+        }
 
         tx.set(adminDb.collection('referralEarnings').doc(`pay_${paymentId}_l${level}`), {
           level,
