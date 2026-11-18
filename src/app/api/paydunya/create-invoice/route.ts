@@ -7,11 +7,10 @@ const PAYDUNYA_BASE_URL = process.env.PAYDUNYA_MODE === 'live'
   ? 'https://app.paydunya.com/api/v1'
   : 'https://app.paydunya.com/sandbox-api/v1';
 
-const REFERRAL_DISCOUNT = 0.05; // 5% de réduction pour l'acheteur
+const REFERRAL_DISCOUNT = 0.05;
 
 export async function POST(req: NextRequest) {
   try {
-    // L'identité vient du token Firebase, jamais du corps de la requête
     const authUser = await verifyRequestUser(req);
     if (!authUser) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
@@ -28,7 +27,6 @@ export async function POST(req: NextRequest) {
     const planInfo = PAYDUNYA_PLANS[plan];
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://samadoom.com';
 
-    // --- Gestion du code de parrainage ---
     let finalAmount = planInfo.amount;
     let validatedReferralCode: string | null = null;
     let referrerId: string | null = null;
@@ -36,10 +34,8 @@ export async function POST(req: NextRequest) {
     if (typeof referralCode === 'string' && /^[A-Za-z0-9]{3,20}$/.test(referralCode.trim())) {
       const code = referralCode.toUpperCase().trim();
       const refSnap = await adminDb.collection('referralCodes').doc(code).get();
-
       if (refSnap.exists) {
         const refData = refSnap.data()!;
-        // Bloquer l'auto-parrainage
         if (refData.userId !== userId) {
           finalAmount = Math.round(planInfo.amount * (1 - REFERRAL_DISCOUNT));
           validatedReferralCode = code;
@@ -47,6 +43,17 @@ export async function POST(req: NextRequest) {
         }
       }
     }
+
+    // custom_data : PayDunya exige des valeurs non-nulles (toutes en string)
+    const customData: Record<string, string> = {
+      userId,
+      userEmail,
+      plan,
+      originalAmount: String(planInfo.amount),
+      regularAmount: String(planInfo.regularAmount),
+    };
+    if (validatedReferralCode) customData.referralCode = validatedReferralCode;
+    if (referrerId) customData.referrerId = referrerId;
 
     const body = {
       invoice: {
@@ -57,8 +64,8 @@ export async function POST(req: NextRequest) {
       },
       store: {
         name: 'Sama Doom',
-        tagline: 'Éducation islamique',
-        postal_address: 'Dakar, Sénégal',
+        tagline: 'Education islamique',
+        postal_address: 'Dakar, Senegal',
         phone: '',
         logo_url: `${siteUrl}/logo.png`,
         website_url: siteUrl,
@@ -68,38 +75,50 @@ export async function POST(req: NextRequest) {
         return_url: `${siteUrl}/abonnement/success?plan=${plan}`,
         callback_url: `${siteUrl}/api/paydunya/callback`,
       },
-      custom_data: {
-        userId,
-        userEmail,
-        plan,
-        referralCode: validatedReferralCode,
-        referrerId,
-        originalAmount: planInfo.amount,
-        regularAmount: planInfo.regularAmount,
-      },
+      custom_data: customData,
     };
 
-    const response = await fetch(`${PAYDUNYA_BASE_URL}/checkout-invoice/create`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'PAYDUNYA-MASTER-KEY': process.env.PAYDUNYA_MASTER_KEY!,
-        'PAYDUNYA-PRIVATE-KEY': process.env.PAYDUNYA_PRIVATE_KEY!,
-        'PAYDUNYA-TOKEN': process.env.PAYDUNYA_TOKEN!,
-        'PAYDUNYA-PUBLIC-KEY': process.env.PAYDUNYA_PUBLIC_KEY!,
-      },
-      body: JSON.stringify(body),
-    });
-
-    const data = await response.json();
-
-    if (data.response_code !== '00') {
-      console.error('PayDunya error:', data);
-      return NextResponse.json({ error: data.response_text || 'Erreur PayDunya' }, { status: 500 });
+    let response: Response;
+    try {
+      response = await fetch(`${PAYDUNYA_BASE_URL}/checkout-invoice/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'PAYDUNYA-MASTER-KEY': process.env.PAYDUNYA_MASTER_KEY!,
+          'PAYDUNYA-PRIVATE-KEY': process.env.PAYDUNYA_PRIVATE_KEY!,
+          'PAYDUNYA-TOKEN': process.env.PAYDUNYA_TOKEN!,
+          'PAYDUNYA-PUBLIC-KEY': process.env.PAYDUNYA_PUBLIC_KEY!,
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (fetchErr) {
+      console.error('PayDunya fetch unreachable:', fetchErr);
+      return NextResponse.json({ error: 'Service de paiement indisponible. Réessayez.' }, { status: 503 });
     }
 
-    // Sauvegarder la facture en attente dans Firestore
-    await adminDb.collection('payments').doc(data.token).set({
+    let data: Record<string, unknown>;
+    try {
+      data = await response.json();
+    } catch (jsonErr) {
+      console.error('PayDunya non-JSON response (HTTP', response.status, '):', jsonErr);
+      return NextResponse.json({ error: 'Réponse inattendue du service de paiement.' }, { status: 502 });
+    }
+
+    if (data.response_code !== '00') {
+      console.error('PayDunya error response:', JSON.stringify(data));
+      const paydunyaMsg = typeof data.response_text === 'string' ? data.response_text : '';
+      const userMsg = paydunyaMsg && paydunyaMsg.toLowerCase() !== 'erreur serveur'
+        ? paydunyaMsg
+        : 'Erreur lors de la création de la facture PayDunya. Réessayez.';
+      return NextResponse.json({ error: userMsg }, { status: 502 });
+    }
+
+    if (!data.token || typeof data.token !== 'string') {
+      console.error('PayDunya missing token:', JSON.stringify(data));
+      return NextResponse.json({ error: 'Réponse PayDunya incomplète (token manquant).' }, { status: 502 });
+    }
+
+    await adminDb.collection('payments').doc(data.token as string).set({
       userId,
       userEmail,
       plan,
@@ -111,11 +130,13 @@ export async function POST(req: NextRequest) {
       token: data.token,
       referralCode: validatedReferralCode,
       referrerId,
-      discountApplied: Boolean(validatedReferralCode), // réduction accordée → commission due
+      discountApplied: Boolean(validatedReferralCode),
       createdAt: new Date().toISOString(),
     });
 
-    const checkoutUrl = data.response_text || null;
+    const checkoutUrl = typeof data.response_text === 'string' && data.response_text.startsWith('http')
+      ? data.response_text
+      : `https://app.paydunya.com/checkout/invoice/${data.token}`;
 
     return NextResponse.json({
       success: true,
