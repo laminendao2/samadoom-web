@@ -3,6 +3,8 @@ import { adminDb } from '@/lib/firebase-admin';
 import { PAYDUNYA_PLANS, isPlanId } from '@/lib/plans';
 import { verifyRequestUser } from '@/lib/server-auth';
 
+export const preferredRegion = 'cdg1'; // Paris — not blocked by PayDunya Cloudflare
+
 const PAYDUNYA_BASE_URL = process.env.PAYDUNYA_MODE === 'live'
   ? 'https://app.paydunya.com/api/v1'
   : 'https://app.paydunya.com/sandbox-api/v1';

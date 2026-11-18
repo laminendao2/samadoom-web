@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { activatePaydunyaPayment, isValidPaydunyaHash, parsePaydunyaBody } from '@/lib/subscription';
 
+export const preferredRegion = 'cdg1'; // Paris — not blocked by PayDunya Cloudflare
+
 /**
  * PayDunya vérifie l'accessibilité de l'URL IPN via GET avant de l'enregistrer.
  * Sans ce handler, Next.js retourne 405 et PayDunya signale "callback inaccessible".
