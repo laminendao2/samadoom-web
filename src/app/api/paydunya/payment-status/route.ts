@@ -3,6 +3,8 @@ import { adminDb } from '@/lib/firebase-admin';
 import { verifyRequestUser } from '@/lib/server-auth';
 import { activatePaydunyaPayment } from '@/lib/subscription';
 
+export const preferredRegion = 'cdg1'; // Paris — not blocked by PayDunya Cloudflare
+
 export async function GET(req: NextRequest) {
   try {
     const authUser = await verifyRequestUser(req);
