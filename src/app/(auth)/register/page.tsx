@@ -50,7 +50,7 @@ function RegisterForm() {
     if (password.length < 6) { setError('Le mot de passe doit avoir au moins 6 caractères'); return; }
     setLoading(true);
     try {
-      await signUp(email, password, name, roleKey, referralStatus === 'valid' ? referralCode.trim().toUpperCase() : undefined);
+      await signUp(email, password, name, roleKey);
       router.replace('/dashboard');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
