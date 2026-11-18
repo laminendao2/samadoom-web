@@ -1,63 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { checkDisburseStatus, settleWithdrawal } from '@/lib/withdrawals';
 import { adminDb } from '@/lib/firebase-admin';
-import { FieldValue } from 'firebase-admin/firestore';
 
 /**
- * Webhook PayDunya pour les remboursements (disbursements).
- * PayDunya appelle cette URL quand le virement Mobile Money est confirme ou echoue.
+ * PayDunya vérifie l'accessibilité du callback de déboursement via GET.
+ */
+export async function GET() {
+  return NextResponse.json({ ok: true });
+}
+
+/**
+ * Webhook PayDunya pour les virements (Payout / Déboursement).
+ * PayDunya appelle cette URL quand le statut d'un virement change.
  */
 export async function POST(req: NextRequest) {
   try {
-    const data = await req.json();
-    console.log('PayDunya disburse-callback:', JSON.stringify(data));
-
-    // PayDunya envoie le disburse_token et le statut
-    const disburseToken: string = data?.disburse_token ?? data?.data?.disburse_token;
-    const status: string = data?.status ?? data?.data?.status; // 'success' | 'failed' | 'pending'
+    const body = await req.json().catch(() => ({}));
+    const disburseToken: string = body?.disburse_token ?? body?.token ?? '';
 
     if (!disburseToken) {
-      return NextResponse.json({ error: 'disburse_token manquant' }, { status: 400 });
-    }
-
-    // Trouver le retrait par disburseToken
-    const withdrawalsSnap = await adminDb.collection('withdrawals')
-      .where('disburseToken', '==', disburseToken).limit(1).get();
-
-    if (withdrawalsSnap.empty) {
-      console.warn('Withdrawal not found for disburse_token:', disburseToken);
+      // PayDunya peut envoyer un POST vide pour tester l'accessibilité
       return NextResponse.json({ received: true });
     }
 
-    const withdrawalDoc = withdrawalsSnap.docs[0];
-    const withdrawal = withdrawalDoc.data();
+    // Trouver le retrait correspondant
+    const snap = await adminDb.collection('withdrawals')
+      .where('disburseToken', '==', disburseToken)
+      .limit(1)
+      .get();
 
-    if (withdrawal.status === 'paid') {
-      // Deja traite
+    if (snap.empty) {
+      return NextResponse.json({ error: 'Retrait introuvable' }, { status: 404 });
+    }
+
+    const doc = snap.docs[0];
+    const current = doc.data().status;
+    if (current !== 'pending') {
+      // Déjà traité — idempotent
       return NextResponse.json({ received: true });
     }
 
-    if (status === 'success') {
-      await withdrawalDoc.ref.update({
-        status: 'paid',
-        paidAt: new Date().toISOString(),
-        paydunyaCallbackData: data,
-      });
-      console.log(`Retrait ${withdrawalDoc.id} : PAYE (${withdrawal.amount} FCFA vers ${withdrawal.phone})`);
-
-    } else if (status === 'failed') {
-      // Rembourser le solde
-      const codeRef = adminDb.collection('referralCodes').doc(withdrawal.referralCode);
-      await adminDb.runTransaction(async (tx) => {
-        tx.update(codeRef, { balance: FieldValue.increment(withdrawal.amount) });
-        tx.update(withdrawalDoc.ref, {
-          status: 'failed',
-          failReason: data?.message ?? 'Echec PayDunya',
-          paydunyaCallbackData: data,
-          updatedAt: new Date().toISOString(),
-        });
-      });
-      console.log(`Retrait ${withdrawalDoc.id} : ECHEC — solde rembourse`);
+    // Confirmer le statut réel auprès de PayDunya
+    const real = await checkDisburseStatus(disburseToken);
+    if (real === 'success') {
+      await settleWithdrawal(doc.id, 'paid');
+    } else if (real === 'failed') {
+      await settleWithdrawal(doc.id, 'failed', { failReason: 'Echec PayDunya (webhook)' });
     }
+    // 'pending' / 'unknown' : on attend le prochain webhook
 
     return NextResponse.json({ received: true });
   } catch (err) {

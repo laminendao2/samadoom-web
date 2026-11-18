@@ -301,11 +301,22 @@ eas build --platform ios --profile production --non-interactive
 5. PayDunya appelle `POST /api/paydunya/callback` → met à jour `payments/{token}.status` + active `users/{userId}.isPro = true`
 6. User redirigé vers `/abonnement/success?plan=...`
 
-### Plans et tarifs
-| Plan | Prix | Durée |
-|------|------|-------|
-| mensuel | 3 000 FCFA | 1 mois |
-| annuel | 24 000 FCFA | 12 mois |
+### Plans et tarifs (web PayDunya — source : `src/lib/plans.ts`, mis à jour le 14/11/2026)
+| Plan | Prix facturé | Prix barré | Durée |
+|------|------|------|-------|
+| semaine | 500 FCFA (prix de lancement) | — | 7 jours |
+| mensuel | 1 500 FCFA (prix de lancement) | 3 000 FCFA | 1 mois |
+| annuel | 24 000 FCFA | — | 12 mois |
+- L'app mobile (Cloud Functions `functions/index.js`, `paydunyaMobileInvoice`) reste à 3 000 / 24 000 FCFA.
+- Les montants affichés dans `abonnement/page.tsx` doivent rester alignés avec `src/lib/plans.ts`.
+
+### Sécurité paiements (14/11/2026) — NE PAS RÉGRESSER
+- Aucune activation sans confirmation auprès de l'API PayDunya (`activatePaydunyaPayment` dans `src/lib/subscription.ts`) : le corps du webhook n'est jamais cru.
+- Activation idempotente en transaction (`finalizePaidPayment`) — partagée par webhook PayDunya, page de succès, payment-status et webhook Stripe.
+- L'IPN PayDunya arrive en `application/x-www-form-urlencoded` sous la clé `data` (pas en JSON).
+- Toutes les routes API tirent l'identité du Firebase ID token (`src/lib/server-auth.ts`), jamais d'un `userId` envoyé par le client.
+- `firestore.rules` : un utilisateur ne peut pas écrire `isPro`, `subscriptionEnd`, `plan`, `planExpiresAt`, `isAdmin` ni s'attribuer `superadmin`. Ce fichier est la version déployée ; le garder identique dans `SamaDoom-mobile/firestore.rules`.
+- Les Cloud Functions PayDunya (dépôt mobile) doivent être redéployées après modification : `firebase deploy --only functions`.
 
 ### Fichiers clés samadoom-web
 - `src/app/(dashboard)/abonnement/page.tsx` — page abonnement avec boutons de paiement

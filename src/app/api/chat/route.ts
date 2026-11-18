@@ -1,69 +1,149 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth } from '@/lib/firebase-admin';
+import { getAuth } from 'firebase-admin/auth';
+import { adminDb } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const GEMINI_MODEL    = 'gemini-1.5-flash';
+const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+// ── Rate limiting en mémoire (reset au redémarrage Vercel) ───────────────────
+// Pour une protection plus robuste, utiliser Upstash Redis
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const MAX_REQUESTS_PER_MINUTE = 10; // par utilisateur
+
+function checkRateLimit(uid: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(uid);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(uid, { count: 1, resetAt: now + 60_000 });
+    return true;
+  }
+  if (entry.count >= MAX_REQUESTS_PER_MINUTE) return false;
+  entry.count++;
+  return true;
+}
+
+// ── Nettoyage mémoire (évite fuite mémoire) ──────────────────────────────────
+setInterval(() => {
+  const now = Date.now();
+  for (const [uid, entry] of rateLimitMap.entries()) {
+    if (now > entry.resetAt) rateLimitMap.delete(uid);
+  }
+}, 5 * 60_000);
 
 export async function POST(req: NextRequest) {
   try {
-    // Authenticate via Firebase ID token
+    // 1) Auth Firebase obligatoire
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
     }
     const idToken = authHeader.slice(7);
-
+    let uid: string;
     try {
-      await adminAuth.verifyIdToken(idToken);
+      const decoded = await getAuth().verifyIdToken(idToken);
+      uid = decoded.uid;
     } catch {
       return NextResponse.json({ error: 'Token invalide' }, { status: 401 });
     }
 
-    const { message, history = [], systemPrompt } = await req.json();
-    if (!message) {
-      return NextResponse.json({ error: 'Message manquant' }, { status: 400 });
+    // 2) Rate limiting : max 10 messages/minute par utilisateur
+    if (!checkRateLimit(uid)) {
+      return NextResponse.json(
+        { error: 'Trop de messages. Attends une minute.' },
+        { status: 429 }
+      );
     }
 
+    // 3) Validation du body
+    const body = await req.json();
+    // Accepte "message" (mobile) ou "userText" (web) pour compatibilité
+    const { history, userText: _ut, message: _msg, systemPrompt, lang } = body;
+    const userText: string = (_msg ?? _ut ?? '');
+
+    if (!userText || typeof userText !== 'string' || userText.trim().length === 0) {
+      return NextResponse.json({ error: 'Message vide' }, { status: 400 });
+    }
+    if (userText.length > 1000) {
+      return NextResponse.json({ error: 'Message trop long (max 1000 caractères)' }, { status: 400 });
+    }
+    if (!Array.isArray(history) || history.length > 20) {
+      return NextResponse.json({ error: 'Historique invalide' }, { status: 400 });
+    }
+
+    // 4) Clé Gemini depuis variable d'environnement (jamais exposée au client)
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: 'Service IA non configuré' }, { status: 500 });
+      return NextResponse.json({ error: 'Service IA non configuré' }, { status: 503 });
     }
 
-    // Build Gemini contents from history
+    // 5) Construction du payload Gemini
     const contents: { role: string; parts: { text: string }[] }[] = [];
-    for (const msg of history) {
-      if (msg.role === 'user' || msg.role === 'model') {
-        contents.push({ role: msg.role, parts: [{ text: msg.text }] });
+    const safeHistory = Array.isArray(history) ? history.slice(-10) : []; // max 10 échanges
+
+    if (safeHistory.length === 0) {
+      contents.push({ role: 'user', parts: [{ text: systemPrompt + '\n\n' + userText }] });
+    } else {
+      contents.push({
+        role: 'user',
+        parts: [{ text: systemPrompt + '\n\n' + (safeHistory[0]?.text ?? userText) }],
+      });
+      for (let i = 1; i < safeHistory.length; i++) {
+        const msg = safeHistory[i];
+        if (msg?.role && msg?.text) {
+          contents.push({
+            role: msg.role === 'ai' ? 'model' : 'user',
+            parts: [{ text: String(msg.text).slice(0, 2000) }],
+          });
+        }
       }
-    }
-    contents.push({ role: 'user', parts: [{ text: message }] });
-
-    const body: {
-      contents: { role: string; parts: { text: string }[] }[];
-      systemInstruction?: { parts: { text: string }[] };
-    } = { contents };
-
-    if (systemPrompt) {
-      body.systemInstruction = { parts: [{ text: systemPrompt }] };
+      contents.push({ role: 'user', parts: [{ text: userText }] });
     }
 
-    const geminiRes = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+    // 6) Appel Gemini
+    const geminiRes = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        contents,
+        generationConfig: {
+          maxOutputTokens: 512,
+          temperature: 0.7,
+        },
+        safetySettings: [
+          { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+          { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        ],
+      }),
     });
 
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
       console.error('Gemini error:', geminiRes.status, errText);
-      return NextResponse.json({ error: 'Erreur IA' }, { status: 502 });
+      return NextResponse.json({ error: 'Erreur IA (' + geminiRes.status + ')' }, { status: 502 });
     }
 
     const data = await geminiRes.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '…';
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '…';
 
-    return NextResponse.json({ text });
+    // 7) Log usage (optionnel, pour stats) — fire and forget
+    try {
+      await adminDb.collection('aiUsage').add({
+        uid,
+        lang: lang ?? 'fr',
+        inputLen: userText.length,
+        outputLen: reply.length,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    } catch { /* non bloquant */ }
+
+    // Retourne "text" (mobile) ET "reply" (web) pour compatibilité
+    return NextResponse.json({ text: reply, reply });
+
   } catch (err) {
-    console.error('/api/chat error:', err);
+    console.error('Chat API error:', err);
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
   }
 }

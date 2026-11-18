@@ -1,10 +1,13 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { collection, getDocs, query, limit, Timestamp } from 'firebase/firestore';
+import { useEffect, useRef, useState } from 'react';
+import { collection, getDocs, query, limit, onSnapshot, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
+import { getAuth } from 'firebase/auth';
 import Link from 'next/link';
+
+function fmt(n: number) { return Math.round(n).toLocaleString('fr-FR'); }
 
 interface Stats {
   totalEcoles: number;
@@ -23,7 +26,102 @@ interface Payment {
   amount: number;
   currency: string;
   status: string;
+  provider?: string;
   createdAt: Timestamp | string;
+}
+
+interface PlatformStats {
+  count: number;
+  completed: number;
+  pending: number;
+  cancelled: number;
+  totalNative: number;
+  totalXof: number;
+  currency: string;
+  nativeLabel: string;
+}
+
+interface RcData {
+  activeSubscriptions: number;
+  mrrUsd: number | null;
+  revenueUsd28d: number | null;
+  mrrXof: number | null;
+  revenueXof28d: number | null;
+  apiConnected: boolean;
+  error?: string;
+}
+
+interface FinanceStats {
+  platforms: Record<string, PlatformStats>;
+  revenueCat: RcData;
+  commissions: { totalEarned: number; dues: number; paid: number; earnedInPeriod: number };
+  summary: { totalXof: number; netXof: number; netPeriodXof: number; totalPayments: number };
+}
+
+// ── Période d'affichage des finances ─────────────────────────────────────────
+type PeriodMode = 'all' | 'day' | 'week' | 'month' | 'year' | 'custom';
+
+const PERIOD_MODES: { id: PeriodMode; label: string }[] = [
+  { id: 'all', label: 'Tout' },
+  { id: 'day', label: 'Jour' },
+  { id: 'week', label: 'Semaine' },
+  { id: 'month', label: 'Mois' },
+  { id: 'year', label: 'Année' },
+  { id: 'custom', label: 'Personnalisé' },
+];
+
+function startOfDay(d: Date): Date { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+
+/** 'YYYY-MM-DD' (champ date) → minuit local. */
+function parseDateInput(v: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+/**
+ * Bornes [from, to[ dans le fuseau du navigateur.
+ * null = période incomplète (personnalisé sans dates valides) → pas de requête.
+ */
+function periodRange(mode: PeriodMode, anchor: Date, customFrom: string, customTo: string):
+  { from: Date | null; to: Date | null } | null {
+  const y = anchor.getFullYear(), m = anchor.getMonth(), d = anchor.getDate();
+  switch (mode) {
+    case 'all': return { from: null, to: null };
+    case 'day': return { from: new Date(y, m, d), to: new Date(y, m, d + 1) };
+    case 'week': {
+      const offset = (anchor.getDay() + 6) % 7;        // semaine du lundi au dimanche
+      return { from: new Date(y, m, d - offset), to: new Date(y, m, d - offset + 7) };
+    }
+    case 'month': return { from: new Date(y, m, 1), to: new Date(y, m + 1, 1) };
+    case 'year': return { from: new Date(y, 0, 1), to: new Date(y + 1, 0, 1) };
+    case 'custom': {
+      const f = parseDateInput(customFrom), t = parseDateInput(customTo);
+      if (!f || !t || f > t) return null;
+      return { from: f, to: new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1) }; // fin incluse
+    }
+  }
+}
+
+function shiftAnchor(mode: PeriodMode, anchor: Date, dir: 1 | -1): Date {
+  const y = anchor.getFullYear(), m = anchor.getMonth(), d = anchor.getDate();
+  if (mode === 'day') return new Date(y, m, d + dir);
+  if (mode === 'week') return new Date(y, m, d + 7 * dir);
+  if (mode === 'month') return new Date(y, m + dir, 1);
+  if (mode === 'year') return new Date(y + dir, 0, 1);
+  return anchor;
+}
+
+function periodLabel(mode: PeriodMode, range: { from: Date | null; to: Date | null } | null): string {
+  if (mode === 'all') return 'Depuis le début';
+  if (!range || !range.from || !range.to) return 'Choisir deux dates';
+  const from = range.from;
+  const last = new Date(range.to.getFullYear(), range.to.getMonth(), range.to.getDate() - 1);
+  const full: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' };
+  if (mode === 'day') return from.toLocaleDateString('fr-FR', { weekday: 'long', ...full });
+  if (mode === 'month') return from.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  if (mode === 'year') return String(from.getFullYear());
+  return `Du ${from.toLocaleDateString('fr-FR', full)} au ${last.toLocaleDateString('fr-FR', full)}`;
 }
 
 function tsToDate(ts: unknown): Date {
@@ -37,8 +135,19 @@ export default function SuperAdminDashboard() {
   const { profile } = useAuth();
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
+  const [financeStats, setFinanceStats] = useState<FinanceStats | null>(null);
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('all');
+  const [anchor, setAnchor] = useState<Date>(() => startOfDay(new Date()));
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [financeLoading, setFinanceLoading] = useState(false);
+  const [financeError, setFinanceError] = useState(false);
+  const financeReqId = useRef(0);
   const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
+  const [paymentsLoading, setPaymentsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [retryLoading, setRetryLoading] = useState(false);
+  const [retryResult, setRetryResult] = useState<{ activated: number; already: number; cancelled: number; total: number } | null>(null);
 
   const isSuperAdmin =
     profile?.role === 'superadmin' || (profile?.roles ?? []).includes('superadmin');
@@ -47,14 +156,79 @@ export default function SuperAdminDashboard() {
     if (!profile) return;
     if (!isSuperAdmin) { router.replace('/dashboard'); return; }
     loadAll();
+
+    // Écoute temps réel des paiements
+    const q = query(collection(db, 'payments'), orderBy('createdAt', 'desc'), limit(20));
+    setPaymentsLoading(true);
+    const unsubPayments = onSnapshot(q, (snap) => {
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Payment);
+      setRecentPayments(all);
+      setPaymentsLoading(false);
+    }, () => { setPaymentsLoading(false); });
+
+    return () => unsubPayments();
   }, [profile]);
+
+  const range = periodRange(periodMode, anchor, customFrom, customTo);
+  const fromIso = range?.from ? range.from.toISOString() : '';
+  const toIso = range?.to ? range.to.toISOString() : '';
+  const rangeReady = range !== null;
+
+  async function loadFinance() {
+    const reqId = ++financeReqId.current;
+    try {
+      const idToken = await getAuth().currentUser?.getIdToken();
+      if (reqId !== financeReqId.current) return;
+      setFinanceLoading(true);
+      setFinanceError(false);
+      const params = new URLSearchParams();
+      if (fromIso) params.set('from', fromIso);
+      if (toIso) params.set('to', toIso);
+      const qs = params.toString();
+      const res = await fetch(`/api/admin/finance-stats${qs ? `?${qs}` : ''}`, {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      if (reqId !== financeReqId.current) return;      // une réponse plus récente est attendue
+      if (res.ok && data?.summary) setFinanceStats(data as FinanceStats);
+      else setFinanceError(true);
+    } catch {
+      if (reqId === financeReqId.current) setFinanceError(true);
+    } finally {
+      if (reqId === financeReqId.current) setFinanceLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!profile || !isSuperAdmin || !rangeReady) return;
+    loadFinance();
+  }, [profile, isSuperAdmin, rangeReady, fromIso, toIso]);
+
+  async function retryStripePayments() {
+    setRetryLoading(true);
+    setRetryResult(null);
+    try {
+      const idToken = await getAuth().currentUser?.getIdToken();
+      const res = await fetch('/api/admin/retry-stripe-payments', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      setRetryResult(data);
+      // Recharger les paiements pour refléter les changements
+      await Promise.all([loadAll(), loadFinance()]);
+    } catch {
+      setRetryResult({ activated: 0, already: 0, cancelled: 0, total: 0 });
+    } finally {
+      setRetryLoading(false);
+    }
+  }
 
   async function loadAll() {
     try {
-      const [ecolesSnap, usersSnap, paymentsSnap] = await Promise.all([
+      const [ecolesSnap, usersSnap] = await Promise.all([
         getDocs(collection(db, 'ecoles')),
         getDocs(collection(db, 'users')),
-        getDocs(query(collection(db, 'payments'), limit(50))),
       ]);
       const now = new Date();
       const users = usersSnap.docs.map(d => d.data());
@@ -72,9 +246,6 @@ export default function SuperAdminDashboard() {
         totalAdmins: users.filter(u => u.role === 'admin').length,
         totalParents: users.filter(u => u.role === 'parent').length,
       });
-      const allPayments = paymentsSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Payment);
-      allPayments.sort((a, b) => tsToDate(b.createdAt).getTime() - tsToDate(a.createdAt).getTime());
-      setRecentPayments(allPayments.slice(0, 10));
     } finally {
       setLoading(false);
     }
@@ -119,6 +290,204 @@ export default function SuperAdminDashboard() {
             ))}
           </div>
 
+          {/* ── FINANCES ─────────────────────────────────────────── */}
+          {financeStats && (
+            <div className="mb-8">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-3">
+                <h2 className="text-lg font-black text-gray-800">💰 Finances</h2>
+                <div className="flex flex-wrap gap-1 bg-gray-100 rounded-xl p-1" role="group" aria-label="Période">
+                  {PERIOD_MODES.map(pm => (
+                    <button
+                      key={pm.id}
+                      type="button"
+                      aria-pressed={periodMode === pm.id}
+                      onClick={() => {
+                        if (pm.id !== 'custom' && pm.id !== 'all') setAnchor(startOfDay(new Date()));
+                        setPeriodMode(pm.id);
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+                        periodMode === pm.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                      }`}
+                    >
+                      {pm.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Période affichée + navigation */}
+              <div className="flex flex-wrap items-center gap-3 mb-4 min-h-[36px]">
+                {(periodMode === 'day' || periodMode === 'week' || periodMode === 'month' || periodMode === 'year') && (
+                  <div className="flex items-center gap-1">
+                    <button type="button" aria-label="Période précédente"
+                      onClick={() => setAnchor(a => shiftAnchor(periodMode, a, -1))}
+                      className="w-8 h-8 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 font-bold">‹</button>
+                    <button type="button" aria-label="Période suivante"
+                      onClick={() => setAnchor(a => shiftAnchor(periodMode, a, 1))}
+                      className="w-8 h-8 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 font-bold">›</button>
+                  </div>
+                )}
+                {periodMode === 'custom' && (
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+                    <label className="flex items-center gap-2">Du
+                      <input type="date" value={customFrom} max={customTo || undefined}
+                        onChange={e => setCustomFrom(e.target.value)}
+                        className="border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-800" />
+                    </label>
+                    <label className="flex items-center gap-2">au
+                      <input type="date" value={customTo} min={customFrom || undefined}
+                        onChange={e => setCustomTo(e.target.value)}
+                        className="border border-gray-200 rounded-lg px-2 py-1.5 bg-white text-gray-800" />
+                    </label>
+                  </div>
+                )}
+                <span className="text-sm font-semibold text-gray-700 first-letter:uppercase">{periodLabel(periodMode, range)}</span>
+                {financeLoading && <span className="text-xs text-gray-400 animate-pulse">Mise à jour…</span>}
+                {financeError && !financeLoading && (
+                  <span className="text-xs text-red-600 font-medium">Chargement impossible — les chiffres affichés peuvent dater de la période précédente.</span>
+                )}
+              </div>
+
+              <div className={financeLoading || !rangeReady ? 'opacity-50 transition-opacity' : 'transition-opacity'}>
+              {/* Résumé top */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+                {(periodMode === 'all' ? [
+                  { label: 'Total encaissé', value: `${fmt(financeStats.summary.totalXof)} FCFA`, icon: '📥', color: '#16a34a', bg: '#f0fdf4' },
+                  { label: 'Commissions dues', value: `${fmt(financeStats.commissions.dues)} FCFA`, icon: '🤝', color: '#d97706', bg: '#fffbeb' },
+                  { label: 'Commissions payées', value: `${fmt(financeStats.commissions.paid)} FCFA`, icon: '✅', color: '#6b7280', bg: '#f9fafb' },
+                  { label: 'Net à encaisser', value: `${fmt(financeStats.summary.netXof)} FCFA`, icon: '🏦', color: '#2563eb', bg: '#eff6ff' },
+                ] : [
+                  { label: 'Encaissé sur la période', value: `${fmt(financeStats.summary.totalXof)} FCFA`, icon: '📥', color: '#16a34a', bg: '#f0fdf4' },
+                  { label: 'Commissions générées sur la période', value: `${fmt(financeStats.commissions.earnedInPeriod)} FCFA`, icon: '🤝', color: '#d97706', bg: '#fffbeb' },
+                  { label: 'Net de la période', value: `${fmt(financeStats.summary.netPeriodXof)} FCFA`, icon: '🏦', color: '#2563eb', bg: '#eff6ff' },
+                  { label: 'Transactions sur la période', value: `${financeStats.summary.totalPayments}`, icon: '🧾', color: '#6b7280', bg: '#f9fafb' },
+                ]).map(c => (
+                  <div key={c.label} style={{ background: c.bg, border: `1px solid ${c.color}20` }} className="rounded-2xl p-5">
+                    <div className="text-2xl mb-1">{c.icon}</div>
+                    <div style={{ color: c.color }} className="text-xl font-black">{c.value}</div>
+                    <div className="text-xs text-gray-500 mt-1 font-medium">{c.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Tableau par plateforme */}
+              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50">
+                      <th className="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Plateforme</th>
+                      <th className="text-right px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Transactions</th>
+                      <th className="text-right px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Payés</th>
+                      <th className="text-right px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">En attente</th>
+                      <th className="text-right px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Annulés</th>
+                      <th className="text-right px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Montant natif</th>
+                      <th className="text-right px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wide">Équiv. FCFA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(financeStats.platforms).map(([key, pl]) => (
+                      <tr key={key} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">{key === 'stripe' ? '💳' : key === 'paydunya' ? '📱' : '🔗'}</span>
+                            <div>
+                              <div className="font-bold text-gray-800 capitalize">{key === 'paydunya' ? 'PayDunya' : key === 'stripe' ? 'Stripe' : key}</div>
+                              <div className="text-xs text-gray-400">{key === 'stripe' ? 'Carte bancaire internationale (EUR)' : key === 'paydunya' ? 'Mobile Money — Orange, Wave (FCFA)' : 'Autre'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-right font-semibold text-gray-700">{pl.count}</td>
+                        <td className="px-5 py-4 text-right"><span className="text-green-700 font-bold bg-green-50 px-2 py-0.5 rounded-full">{pl.completed}</span></td>
+                        <td className="px-5 py-4 text-right"><span className="text-yellow-700 font-semibold">{pl.pending}</span></td>
+                        <td className="px-5 py-4 text-right"><span className="text-red-500 font-semibold">{pl.cancelled}</span></td>
+                        <td className="px-5 py-4 text-right font-bold text-gray-800">{pl.nativeLabel}</td>
+                        <td className="px-5 py-4 text-right font-black text-green-700">{fmt(pl.totalXof)} FCFA</td>
+                      </tr>
+                    ))}
+                    {/* RevenueCat (IAP) */}
+                    <tr className="border-b border-gray-50 bg-purple-50/40">
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">📱</span>
+                          <div>
+                            <div className="font-bold text-gray-800 flex items-center gap-2">
+                              RevenueCat (Apple / Google)
+                              {financeStats.revenueCat.apiConnected
+                                ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">🟢 Connecté</span>
+                                : <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">⚠️ Clé manquante</span>
+                              }
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              {financeStats.revenueCat.apiConnected
+                                ? `IAP App Store & Play Store · MRR $${financeStats.revenueCat.mrrUsd?.toFixed(2) ?? '—'} · 28j $${financeStats.revenueCat.revenueUsd28d?.toFixed(2) ?? '—'}${periodMode === 'all' ? '' : ' · valeurs actuelles, non filtrées par période'}`
+                                : financeStats.revenueCat.error ?? 'IAP — abonnements App Store & Play Store'
+                              }
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 text-right font-semibold text-gray-500">—</td>
+                      <td className="px-5 py-4 text-right">
+                        <span className="text-purple-700 font-bold bg-purple-100 px-2 py-0.5 rounded-full text-xs">
+                          {financeStats.revenueCat.activeSubscriptions} actifs
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-right text-gray-400">—</td>
+                      <td className="px-5 py-4 text-right text-gray-400">—</td>
+                      <td className="px-5 py-4 text-right text-xs text-purple-700 font-bold">
+                        {financeStats.revenueCat.mrrUsd !== null
+                          ? `$${financeStats.revenueCat.mrrUsd.toFixed(2)}/mois`
+                          : <a href="https://app.revenuecat.com" target="_blank" rel="noopener" className="text-purple-500 underline">dashboard</a>
+                        }
+                      </td>
+                      <td className="px-5 py-4 text-right font-black text-purple-700">
+                        {financeStats.revenueCat.mrrXof !== null
+                          ? `~${fmt(financeStats.revenueCat.mrrXof)} FCFA/mois`
+                          : <span className="text-gray-400 text-xs font-normal">Ajouter REVENUECAT_SECRET_KEY</span>
+                        }
+                      </td>
+                    </tr>
+                    {/* Total */}
+                    <tr className="bg-gray-800 text-white">
+                      <td className="px-5 py-4 font-black text-sm" colSpan={5}>TOTAL (Stripe + PayDunya)</td>
+                      <td className="px-5 py-4 text-right text-xs text-gray-300">converti en FCFA</td>
+                      <td className="px-5 py-4 text-right font-black text-green-400 text-base">{fmt(financeStats.summary.totalXof)} FCFA</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Commissions détail */}
+              <div className="mt-4 bg-amber-50 border border-amber-200 rounded-2xl p-5 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+                <div>
+                  <div className="font-bold text-amber-800 mb-1">🤝 Commissions parrainage{periodMode === 'all' ? '' : ' — soldes cumulés, toutes périodes'}</div>
+                  <div className="text-sm text-amber-700">
+                    Total gagné par les parrains : <strong>{fmt(financeStats.commissions.totalEarned)} FCFA</strong> ·
+                    Déjà versé : <strong>{fmt(financeStats.commissions.paid)} FCFA</strong>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-amber-600 font-medium">Reste à payer</div>
+                  <div className="text-2xl font-black text-amber-800">{fmt(financeStats.commissions.dues)} FCFA</div>
+                </div>
+              </div>
+
+              {/* Net */}
+              <div className="mt-3 bg-gradient-to-r from-blue-600 to-blue-800 rounded-2xl p-5 text-white flex items-center justify-between">
+                <div>
+                  <div className="text-blue-200 text-sm font-medium">{periodMode === 'all' ? 'Net estimé après commissions' : 'Net de la période'}</div>
+                  <div className="text-xs text-blue-300 mt-0.5">
+                    {periodMode === 'all'
+                      ? 'Total encaissé − commissions dues (RevenueCat non inclus)'
+                      : 'Encaissé − commissions générées sur la période (RevenueCat non inclus)'}
+                  </div>
+                </div>
+                <div className="text-3xl font-black">{fmt(periodMode === 'all' ? financeStats.summary.netXof : financeStats.summary.netPeriodXof)} FCFA</div>
+              </div>
+              </div>
+            </div>
+          )}
+
           {/* Quick links */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             {[
@@ -143,11 +512,33 @@ export default function SuperAdminDashboard() {
 
           {/* Recent payments */}
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between">
-              <h2 className="font-bold text-gray-900">Paiements récents</h2>
-              <span className="text-xs text-gray-400">{recentPayments.length} derniers</span>
+            <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <h2 className="font-bold text-gray-900">Paiements récents</h2>
+                <span className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full font-semibold">
+                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse inline-block" />
+                  Temps réel
+                </span>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                {retryResult && (
+                  <span className="text-xs text-gray-500 bg-gray-50 px-3 py-1 rounded-full">
+                    ✅ {retryResult.activated} activés · ⏭ {retryResult.already} déjà actifs · ❌ {retryResult.cancelled} annulés
+                  </span>
+                )}
+                <button
+                  onClick={retryStripePayments}
+                  disabled={retryLoading}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-full bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {retryLoading ? '⏳ Vérification…' : '🔄 Régulariser Stripe'}
+                </button>
+                <span className="text-xs text-gray-400">{paymentsLoading ? 'Chargement…' : `${recentPayments.length} derniers`}</span>
+              </div>
             </div>
-            {recentPayments.length === 0 ? (
+            {paymentsLoading ? (
+              <div className="py-12 text-center text-gray-400 text-sm animate-pulse">Chargement des paiements…</div>
+            ) : recentPayments.length === 0 ? (
               <div className="py-12 text-center text-gray-400 text-sm">Aucun paiement enregistré</div>
             ) : (
               <div className="divide-y divide-gray-50">

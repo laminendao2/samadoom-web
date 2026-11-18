@@ -1,24 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { adminDb } from '@/lib/firebase-admin';
+import { verifyRequestUser } from '@/lib/server-auth';
+import { Timestamp } from 'firebase-admin/firestore';
+
+function toDate(v: unknown): Date | null {
+  if (!v) return null;
+  if (v instanceof Timestamp) return v.toDate();
+  if (typeof v === 'string' || typeof v === 'number') {
+    const d = new Date(v); return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+function isReferrerPro(data: FirebaseFirestore.DocumentData | undefined): boolean {
+  if (!data) return false;
+  const dates = [toDate(data.planExpiresAt), toDate(data.subscriptionEnd)].filter((d): d is Date => d !== null);
+  if (dates.length) return new Date(Math.max(...dates.map(d => d.getTime()))) > new Date();
+  return data.isPro === true;
+}
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-10-28.endive',
 });
 
-// Prix en centimes USD
+// Prix en centimes EUR — 1 EUR = 655.957 XOF (taux fixe CFA)
 const STRIPE_PRICES: Record<string, number> = {
-  mensuel: 500,  // $5.00
-  annuel: 3900,  // $39.00
+  mensuel: 499,   // €4.99/mois ≈ 3 270 FCFA
+  annuel: 3999,   // €39.99/an  ≈ 26 220 FCFA
 };
 
 const REFERRAL_DISCOUNT = 0.05; // 5%
 
 export async function POST(req: NextRequest) {
   try {
-    const { plan, userId, userEmail, referralCode } = await req.json();
+    // L'identité vient du token Firebase, jamais du corps de la requête
+    const authUser = await verifyRequestUser(req);
+    if (!authUser) {
+      return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+    }
+    const userId = authUser.uid;
+    const userEmail = authUser.email || '';
 
-    if (!plan || !userId || !STRIPE_PRICES[plan]) {
+    const body = await req.json();
+    const plan = typeof body.plan === 'string' ? body.plan : '';
+    const referralCode = typeof body.referralCode === 'string' && /^[A-Za-z0-9]{3,20}$/.test(body.referralCode.trim())
+      ? body.referralCode.trim().toUpperCase()
+      : null;
+
+    if (!plan || !Object.prototype.hasOwnProperty.call(STRIPE_PRICES, plan)) {
       return NextResponse.json({ error: 'Plan invalide' }, { status: 400 });
     }
 
@@ -29,14 +58,14 @@ export async function POST(req: NextRequest) {
     // Valider le code de parrainage si fourni
     if (referralCode) {
       try {
-        const snap = await adminDb.collection('referralCodes').doc(referralCode.toUpperCase()).get();
+        const snap = await adminDb.collection('referralCodes').doc(referralCode).get();
         if (snap.exists) {
           const refData = snap.data()!;
           // Bloquer auto-parrainage
           if (refData.userId !== userId) {
             // Vérifier que le parrain est abonné
             const referrerDoc = await adminDb.collection('users').doc(refData.userId).get();
-            if (referrerDoc.data()?.isPro) {
+            if (isReferrerPro(referrerDoc.data())) {
               finalAmount = Math.round(finalAmount * (1 - REFERRAL_DISCOUNT));
               referrerId = refData.userId;
               discountApplied = true;
@@ -48,7 +77,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const origin = req.headers.get('origin') || 'https://samadoom.com';
+    // URL de retour fixe : ne pas faire confiance au header Origin
+    const origin = process.env.NEXT_PUBLIC_SITE_URL || 'https://samadoom.com';
 
     // Créer la session Stripe Checkout
     const session = await stripe.checkout.sessions.create({
@@ -57,12 +87,12 @@ export async function POST(req: NextRequest) {
       line_items: [
         {
           price_data: {
-            currency: 'usd',
+            currency: 'eur',
             unit_amount: finalAmount,
             product_data: {
               name: `Sama Doom — Plan ${plan === 'mensuel' ? 'Mensuel' : 'Annuel'}`,
               description: discountApplied
-                ? `Accès Pro Sama Doom (-10% parrainage code ${referralCode})`
+                ? `Accès Pro Sama Doom (-5% parrainage code ${referralCode})`
                 : 'Accès complet à tout le contenu islamique',
             },
           },
@@ -88,7 +118,7 @@ export async function POST(req: NextRequest) {
       userEmail: userEmail || '',
       plan,
       amount: finalAmount,
-      currency: 'usd',
+      currency: 'eur',
       referralCode: referralCode || null,
       referrerId: referrerId || null,
       discountApplied,

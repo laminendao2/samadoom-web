@@ -9,7 +9,13 @@ function SuccessContent() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const plan = searchParams.get('plan') || 'mensuel';
-  const token = searchParams.get('token');
+  const provider = searchParams.get('provider'); // 'stripe' ou absent (PayDunya)
+  const sessionId = searchParams.get('session_id'); // Stripe checkout session ID
+
+  // PayDunya ne repasse pas le token dans l'URL de retour —
+  // on le récupère depuis sessionStorage où la page abonnement l'a stocké.
+  const tokenFromUrl = searchParams.get('token');
+  const token = tokenFromUrl || (typeof window !== 'undefined' ? sessionStorage.getItem('paydunya_pending_token') : null);
 
   const [verifyStatus, setVerifyStatus] = useState<'loading' | 'activated' | 'pending' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
@@ -18,47 +24,80 @@ function SuccessContent() {
     // Attendre que Firebase ait chargé l'état auth avant de vérifier
     if (authLoading) return;
 
-    if (!token) {
-      // Pas de token PayDunya (ex: retour Stripe) → abonnement géré via webhook
-      setVerifyStatus('activated');
-      return;
-    }
-
     if (!user) {
       setVerifyStatus('error');
       setErrorMsg('Vous devez être connecté pour activer votre abonnement.');
       return;
     }
 
-    const verify = async () => {
-      try {
-        const idToken = await user.getIdToken();
-        const res = await fetch('/api/paydunya/verify-and-activate', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${idToken}`,
-          },
-          body: JSON.stringify({ token }),
-        });
-        const data = await res.json();
+    // === Paiement Stripe ===
+    if (provider === 'stripe' && sessionId) {
+      const activateStripe = async () => {
+        try {
+          const idToken = await user.getIdToken();
+          const res = await fetch('/api/stripe/activate-session', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({ sessionId }),
+          });
+          const data = await res.json();
 
-        if (data.status === 'activated' || data.status === 'already_activated') {
-          setVerifyStatus('activated');
-        } else if (data.status === 'pending') {
-          setVerifyStatus('pending');
-        } else {
+          if (data.status === 'activated') {
+            setVerifyStatus('activated');
+          } else if (data.status === 'pending') {
+            setVerifyStatus('pending');
+          } else {
+            setVerifyStatus('error');
+            setErrorMsg(data.message || 'Erreur d\'activation');
+          }
+        } catch {
           setVerifyStatus('error');
-          setErrorMsg(data.message || 'Erreur de vérification');
+          setErrorMsg('Impossible de vérifier le paiement Stripe');
         }
-      } catch {
-        setVerifyStatus('error');
-        setErrorMsg('Impossible de vérifier le paiement');
-      }
-    };
+      };
+      activateStripe();
+      return;
+    }
 
-    verify();
-  }, [token, user, authLoading]);
+    // === Paiement PayDunya ===
+    if (token) {
+      const verify = async () => {
+        try {
+          const idToken = await user.getIdToken();
+          const res = await fetch('/api/paydunya/verify-and-activate', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({ token }),
+          });
+          const data = await res.json();
+
+          if (data.status === 'activated' || data.status === 'already_activated') {
+            sessionStorage.removeItem('paydunya_pending_token');
+            setVerifyStatus('activated');
+          } else if (data.status === 'pending') {
+            setVerifyStatus('pending');
+          } else {
+            setVerifyStatus('error');
+            setErrorMsg(data.message || 'Erreur de vérification');
+          }
+        } catch {
+          setVerifyStatus('error');
+          setErrorMsg('Impossible de vérifier le paiement');
+        }
+      };
+      verify();
+      return;
+    }
+
+    // Ni Stripe ni PayDunya — ne devrait pas arriver, mais on affiche quand même succès
+    setVerifyStatus('activated');
+  }, [provider, sessionId, token, user, authLoading]);
 
   useEffect(() => {
     if (verifyStatus === 'activated') {
@@ -118,7 +157,7 @@ function SuccessContent() {
         <div style={{ fontSize: 72, marginBottom: 16 }}>✅</div>
         <h1 style={{ fontSize: 26, fontWeight: 900, color: '#166534', marginBottom: 8 }}>Paiement réussi !</h1>
         <p style={{ color: '#374151', marginBottom: 24, lineHeight: 1.6 }}>
-          Votre abonnement <strong>{plan === 'annuel' ? 'Annuel' : 'Mensuel'}</strong> est maintenant actif.
+          Votre abonnement <strong>{plan === 'annuel' ? 'Annuel' : plan === 'semaine' ? 'Hebdomadaire' : 'Mensuel'}</strong> est maintenant actif.
           <br />Profitez de tout le contenu Sama Doom.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 280, margin: '0 auto' }}>

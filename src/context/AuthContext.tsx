@@ -4,7 +4,7 @@ import {
   onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   signInWithPopup, GoogleAuthProvider, signOut, User,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 
 export interface UserProfile {
@@ -22,8 +22,9 @@ export interface UserProfile {
   planExpiresAt?: string | null;
   planCancelledAt?: string | null;
   cancelAtPeriodEnd?: boolean;
-  referredBy?: string | null;
-  createdAt?: Date | null;
+  savedReferralCode?: string | null;
+  phone?: string | null;
+  phoneCountry?: string | null;
 }
 
 interface AuthContextValue {
@@ -31,7 +32,7 @@ interface AuthContextValue {
   profile: UserProfile | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, name: string, role: string, referralCode?: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string, role: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   switchRole: (role: string) => void;
@@ -53,82 +54,81 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (u) => {
+    let unsubProfile: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, (u) => {
       setUser(u);
+
+      // Annuler l'écoute précédente si elle existe
+      if (unsubProfile) {
+        unsubProfile();
+        unsubProfile = null;
+      }
+
       if (u) {
-        const snap = await getDoc(doc(db, 'users', u.uid));
-        if (snap.exists()) {
-          const data = snap.data();
-          const subscriptionEnd = resolveSubscriptionEnd(data.subscriptionEnd);
+        // onSnapshot : mise à jour en temps réel (phone, isPro, etc.)
+        unsubProfile = onSnapshot(doc(db, 'users', u.uid), (snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            const subscriptionEnd = resolveSubscriptionEnd(data.subscriptionEnd);
 
-          // Calculer isPro : tenir compte de planExpiresAt et cancelAtPeriodEnd
-          let isPro = false;
-          if (data.isPro) {
-            if (data.planExpiresAt) {
-              const expiresAt = new Date(data.planExpiresAt);
-              isPro = expiresAt > new Date();
-              // Si expiré, mettre à jour Firestore en arrière-plan
-              if (!isPro && !data.cancelAtPeriodEnd) {
-                // Déjà expiré naturellement — ne rien faire ici
-              } else if (!isPro && data.cancelAtPeriodEnd) {
-                // Accès expiré après annulation programmée — on garde isPro=false
+            // Calculer isPro : tenir compte de planExpiresAt et cancelAtPeriodEnd
+            let isPro = false;
+            if (data.isPro) {
+              if (data.planExpiresAt) {
+                const expiresAt = new Date(data.planExpiresAt);
+                isPro = expiresAt > new Date();
+              } else {
+                // Pas de planExpiresAt → utiliser l'ancienne logique subscriptionEnd
+                isPro = subscriptionEnd ? subscriptionEnd > new Date() : data.isPro === true;
               }
-            } else {
-              // Pas de planExpiresAt → utiliser l'ancienne logique subscriptionEnd
-              isPro = subscriptionEnd ? subscriptionEnd > new Date() : data.isPro === true;
             }
-          }
 
-          setProfile({
-            uid: u.uid,
-            email: u.email || '',
-            name: data.name || '',
-            role: data.role || 'eleve',
-            roles: data.roles || [],
-            isPro,
-            subscriptionEnd,
-            ecoleId: data.ecoleId || null,
-            groupeId: data.groupeId || null,
-            photoURL: data.photoURL || u.photoURL || null,
-            plan: data.plan || null,
-            planExpiresAt: data.planExpiresAt || null,
-            planCancelledAt: data.planCancelledAt || null,
-            cancelAtPeriodEnd: data.cancelAtPeriodEnd || false,
-            referredBy: data.referredBy || null,
-            createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : null,
-          } as UserProfile);
-        }
+            setProfile({
+              uid: u.uid,
+              email: u.email || '',
+              name: data.name || '',
+              role: data.role || 'eleve',
+              roles: data.roles || [],
+              isPro,
+              subscriptionEnd,
+              ecoleId: data.ecoleId || null,
+              groupeId: data.groupeId || null,
+              photoURL: data.photoURL || u.photoURL || null,
+              plan: data.plan || null,
+              planExpiresAt: data.planExpiresAt || null,
+              planCancelledAt: data.planCancelledAt || null,
+              cancelAtPeriodEnd: data.cancelAtPeriodEnd || false,
+              savedReferralCode: data.savedReferralCode || null,
+              phone: data.phone || null,
+              phoneCountry: data.phoneCountry || '+221',
+            } as UserProfile);
+          }
+          setLoading(false);
+        }, () => {
+          setLoading(false);
+        });
       } else {
         setProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
-    return unsub;
+
+    return () => {
+      unsubAuth();
+      if (unsubProfile) unsubProfile();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
     await signInWithEmailAndPassword(auth, email, password);
   };
 
-  const signUp = async (email: string, password: string, name: string, role: string, referralCode?: string) => {
+  const signUp = async (email: string, password: string, name: string, role: string) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     await setDoc(doc(db, 'users', cred.user.uid), {
       name, email, role, roles: [role], isPro: false, createdAt: serverTimestamp(),
     });
-    // Enregistrer le code de parrainage si fourni
-    if (referralCode) {
-      try {
-        const idToken = await cred.user.getIdToken();
-        await fetch('/api/referral/use', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-          body: JSON.stringify({ code: referralCode }),
-        });
-      } catch (e) {
-        // Non bloquant — l'inscription réussit même si le parrainage échoue
-        console.warn('Referral use error:', e);
-      }
-    }
   };
 
   const signInWithGoogle = async () => {

@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 
 interface ReferralData {
@@ -10,18 +11,29 @@ interface ReferralData {
   referralUrl: string;
 }
 
+interface ReferredUser {
+  userId: string;
+  userEmail: string;
+  userName: string;
+  plan: string;
+  completedAt: string;
+  commission: number;
+  commissionPaid: boolean;
+}
+
 type WithdrawStatus = 'idle' | 'loading' | 'success' | 'error';
 
 export default function ReferralPage() {
   const { user, profile } = useAuth();
   const [referral, setReferral] = useState<ReferralData | null>(null);
+  const [referredUsers, setReferredUsers] = useState<ReferredUser[]>([]);
+  const [loadingReferred, setLoadingReferred] = useState(false);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [error, setError] = useState('');
   const [showWithdraw, setShowWithdraw] = useState(false);
-  const [withdrawPhone, setWithdrawPhone] = useState('');
   const [withdrawOperator, setWithdrawOperator] = useState('orange-money');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawStatus, setWithdrawStatus] = useState<WithdrawStatus>('idle');
@@ -30,9 +42,28 @@ export default function ReferralPage() {
   const fetchReferral = useCallback(async () => {
     if (!user) return;
     try {
-      const res = await fetch(`/api/referral/generate?userId=${user.uid}`);
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/referral/generate', {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
       const data = await res.json();
       setReferral(data.code ? data : null);
+
+      // Charger la liste des parrainés si un code existe
+      if (data.code) {
+        setLoadingReferred(true);
+        try {
+          const res2 = await fetch('/api/referral/referred', {
+            headers: { Authorization: `Bearer ${idToken}` },
+          });
+          const data2 = await res2.json();
+          setReferredUsers(data2.referred ?? []);
+        } catch {
+          // non-bloquant
+        } finally {
+          setLoadingReferred(false);
+        }
+      }
     } catch {
       setError('Erreur de chargement');
     } finally {
@@ -49,11 +80,11 @@ export default function ReferralPage() {
     setGenerating(true);
     setError('');
     try {
+      const idToken = await user.getIdToken();
       const res = await fetch('/api/referral/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
-          userId: user.uid,
           userName: profile.name || user.email || 'Utilisateur',
           userEmail: user.email,
         }),
@@ -115,14 +146,13 @@ export default function ReferralPage() {
       const res = await fetch('/api/referral/withdraw', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ amount, phone: withdrawPhone, operator: withdrawOperator }),
+        body: JSON.stringify({ amount, operator: withdrawOperator }),
       });
       const data = await res.json();
       if (data.success) {
         setWithdrawStatus('success');
         setWithdrawMsg(`✅ ${data.message} — vous recevrez un SMS de confirmation.`);
         setWithdrawAmount('');
-        setWithdrawPhone('');
         // Actualiser le solde
         await fetchReferral();
       } else {
@@ -298,7 +328,7 @@ export default function ReferralPage() {
             {[
               { label: 'Solde disponible', value: `${referral.balance?.toLocaleString('fr-FR') ?? 0} FCFA`, color: '#166534', bg: '#f0fdf4', border: '#bbf7d0' },
               { label: 'Total gagné', value: `${referral.totalEarned?.toLocaleString('fr-FR') ?? 0} FCFA`, color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
-              { label: 'Filleuls', value: referral.usageCount ?? 0, color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
+              { label: 'Filleuls', value: loadingReferred ? '…' : referredUsers.length, color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
             ].map(stat => (
               <div key={stat.label} style={{
                 background: stat.bg,
@@ -315,34 +345,9 @@ export default function ReferralPage() {
             ))}
           </div>
 
-          {/* Comment ça marche */}
-          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 20, padding: 24 }}>
-            <h3 style={{ fontWeight: 800, color: '#92400e', marginBottom: 16, fontSize: 15 }}>
-              💡 Comment ça marche
-            </h3>
-            {[
-              { step: '1', text: 'Partagez votre code ou lien à vos élèves, parents ou amis' },
-              { step: '2', text: 'Ils arrivent sur la page abonnement avec -5% appliqué automatiquement' },
-              { step: '3', text: 'Dès qu\'ils paient, vous recevez 10% du montant payé sur votre solde' },
-              { step: '4', text: 'La commission s\'accumule à chaque renouvellement' },
-            ].map(item => (
-              <div key={item.step} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
-                <span style={{
-                  width: 24, height: 24, borderRadius: '50%',
-                  background: '#166534', color: 'white',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 12, fontWeight: 700, flexShrink: 0,
-                }}>
-                  {item.step}
-                </span>
-                <p style={{ fontSize: 13, color: '#78350f', margin: 0, lineHeight: 1.5 }}>{item.text}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Retrait */}
+          {/* Retrait — juste après les stats */}
           {referral.balance >= 2000 && (
-            <div style={{ marginTop: 20 }}>
+            <div style={{ marginBottom: 20 }}>
               {!showWithdraw ? (
                 <button
                   onClick={() => { setShowWithdraw(true); setWithdrawStatus('idle'); setWithdrawMsg(''); }}
@@ -384,21 +389,43 @@ export default function ReferralPage() {
                     </div>
                   </div>
 
-                  {/* Numéro */}
+                  {/* Numéro — verrouillé depuis le profil */}
                   <div style={{ marginBottom: 16 }}>
-                    <p style={{ fontSize: 13, color: '#374151', fontWeight: 600, marginBottom: 8 }}>Numéro de téléphone</p>
-                    <input
-                      type="tel"
-                      placeholder="77 123 45 67"
-                      value={withdrawPhone}
-                      onChange={e => setWithdrawPhone(e.target.value)}
-                      style={{
-                        width: '100%', padding: '12px 14px', borderRadius: 10,
-                        border: '1px solid #d1d5db', fontSize: 15, outline: 'none',
-                        boxSizing: 'border-box',
-                      }}
-                    />
-                    <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>Sans indicatif pays (+221)</p>
+                    <p style={{ fontSize: 13, color: '#374151', fontWeight: 600, marginBottom: 8 }}>
+                      📱 Numéro de réception
+                    </p>
+                    {profile?.phone ? (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '12px 14px', borderRadius: 10,
+                        border: '1px solid #bbf7d0', background: '#f0fdf4',
+                      }}>
+                        <span style={{ fontSize: 15, fontWeight: 700, color: '#166534', fontFamily: 'monospace', letterSpacing: 1 }}>
+                          {profile.phoneCountry || '+221'} {profile.phone}
+                        </span>
+                        <span style={{ fontSize: 11, color: '#16a34a', marginLeft: 'auto' }}>🔒 Vérifié</span>
+                      </div>
+                    ) : (
+                      <div style={{
+                        padding: '12px 14px', borderRadius: 10,
+                        border: '1px solid #fde68a', background: '#fffbeb',
+                      }}>
+                        <p style={{ fontSize: 13, color: '#92400e', margin: '0 0 8px' }}>
+                          ⚠️ Aucun numéro enregistré dans votre profil.
+                        </p>
+                        <Link href="/profile" style={{
+                          display: 'inline-block', padding: '8px 16px',
+                          background: '#166534', color: 'white',
+                          borderRadius: 8, fontWeight: 700, fontSize: 13,
+                          textDecoration: 'none',
+                        }}>
+                          → Ajouter dans mon profil
+                        </Link>
+                      </div>
+                    )}
+                    <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                      Le virement sera envoyé sur ce numéro. Pour le modifier : <Link href="/profile" style={{ color: '#166534' }}>Mon profil</Link>
+                    </p>
                   </div>
 
                   {/* Montant */}
@@ -458,23 +485,49 @@ export default function ReferralPage() {
 
                   <button
                     onClick={handleWithdraw}
-                    disabled={withdrawStatus === 'loading' || withdrawStatus === 'success'}
+                    disabled={withdrawStatus === 'loading' || withdrawStatus === 'success' || !profile?.phone}
                     style={{
                       width: '100%', padding: '14px 0',
                       background: withdrawStatus === 'success' ? '#15803d' : 'linear-gradient(135deg, #166534 0%, #15803d 100%)',
                       color: 'white', border: 'none', borderRadius: 12,
                       fontWeight: 700, fontSize: 15,
-                      cursor: withdrawStatus === 'loading' || withdrawStatus === 'success' ? 'not-allowed' : 'pointer',
-                      opacity: withdrawStatus === 'loading' ? 0.7 : 1,
+                      cursor: (withdrawStatus === 'loading' || withdrawStatus === 'success' || !profile?.phone) ? 'not-allowed' : 'pointer',
+                      opacity: (withdrawStatus === 'loading' || !profile?.phone) ? 0.5 : 1,
                     }}>
                     {withdrawStatus === 'loading' ? 'Traitement en cours…' :
                      withdrawStatus === 'success' ? '✅ Retrait envoyé' :
+                     !profile?.phone ? '📱 Ajoutez votre numéro dans le profil' :
                      'Confirmer le retrait'}
                   </button>
                 </div>
               )}
             </div>
           )}
+
+          {/* Comment ça marche */}
+          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 20, padding: 24 }}>
+            <h3 style={{ fontWeight: 800, color: '#92400e', marginBottom: 16, fontSize: 15 }}>
+              💡 Comment ça marche
+            </h3>
+            {[
+              { step: '1', text: 'Partagez votre code ou lien à vos élèves, parents ou amis' },
+              { step: '2', text: 'Ils arrivent sur la page abonnement avec -5% appliqué automatiquement' },
+              { step: '3', text: 'Dès qu\'ils paient, vous recevez 10% du montant payé sur votre solde' },
+              { step: '4', text: 'La commission s\'accumule à chaque renouvellement' },
+            ].map(item => (
+              <div key={item.step} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
+                <span style={{
+                  width: 24, height: 24, borderRadius: '50%',
+                  background: '#166534', color: 'white',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 12, fontWeight: 700, flexShrink: 0,
+                }}>
+                  {item.step}
+                </span>
+                <p style={{ fontSize: 13, color: '#78350f', margin: 0, lineHeight: 1.5 }}>{item.text}</p>
+              </div>
+            ))}
+          </div>
 
           {referral.balance > 0 && referral.balance < 2000 && (
             <div style={{ marginTop: 16, padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 12 }}>
@@ -484,6 +537,90 @@ export default function ReferralPage() {
               </p>
             </div>
           )}
+
+          {/* Section parrainés */}
+          <div style={{ marginTop: 32 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 800, color: '#111827', marginBottom: 16 }}>
+              👥 Mes parrainés ({referredUsers.length})
+            </h2>
+
+            {loadingReferred ? (
+              <div style={{ textAlign: 'center', color: '#6b7280', padding: '24px 0', fontSize: 14 }}>
+                Chargement…
+              </div>
+            ) : referredUsers.length === 0 ? (
+              <div style={{
+                background: '#f9fafb', border: '1px dashed #d1d5db', borderRadius: 16,
+                padding: '32px 24px', textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>🎯</div>
+                <p style={{ color: '#6b7280', fontSize: 14, margin: 0 }}>
+                  Personne n&apos;a encore utilisé votre code.<br />
+                  Partagez-le pour commencer à gagner des commissions !
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {referredUsers.map((u) => {
+                  const date = u.completedAt
+                    ? new Date(u.completedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
+                    : '—';
+                  const planLabel = u.plan === 'annuel' ? '📅 Annuel' : u.plan === 'mensuel' ? '📆 Mensuel' : u.plan === 'semaine' ? '📆 Semaine' : u.plan || '—';
+                  const displayName = u.userName || 'Filleul';
+
+                  return (
+                    <div key={u.userId} style={{
+                      background: 'white',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 14,
+                      padding: '16px 18px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 14,
+                      flexWrap: 'wrap',
+                    }}>
+                      {/* Avatar */}
+                      <div style={{
+                        width: 40, height: 40, borderRadius: '50%',
+                        background: 'linear-gradient(135deg, #166534, #15803d)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: 'white', fontWeight: 700, fontSize: 15, flexShrink: 0,
+                      }}>
+                        {displayName[0].toUpperCase()}
+                      </div>
+
+                      {/* Infos */}
+                      <div style={{ flex: 1, minWidth: 120 }}>
+                        <p style={{ margin: '0 0 4px', fontWeight: 700, fontSize: 14, color: '#111827' }}>
+                          {displayName}
+                        </p>
+                        <p style={{ margin: 0, fontSize: 12, color: '#6b7280' }}>
+                          {planLabel} · {date}
+                        </p>
+                      </div>
+
+                      {/* Commission */}
+                      <div style={{ textAlign: 'right' }}>
+                        {u.commissionPaid && u.commission > 0 ? (
+                          <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#16a34a' }}>
+                            +{u.commission.toLocaleString('fr-FR')} FCFA
+                          </p>
+                        ) : (
+                          <p style={{ margin: 0, fontSize: 11, color: '#9ca3af' }}>
+                            Abonné
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+                  ¹ La commission n&apos;est créditée que si vous êtes abonné Pro au moment où votre filleul paie.
+                </p>
+              </div>
+            )}
+          </div>
         </>
       )}
     </div>
