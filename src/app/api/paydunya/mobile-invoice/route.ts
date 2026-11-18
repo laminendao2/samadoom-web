@@ -27,7 +27,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Token invalide' }, { status: 401 });
     }
 
-    const { plan } = await req.json();
+    const body = await req.json();
+    const { plan, referralCode: bodyReferralCode } = body;
     if (!plan || !PLANS[plan]) {
       return NextResponse.json({ error: 'Plan invalide' }, { status: 400 });
     }
@@ -37,10 +38,35 @@ export async function POST(req: NextRequest) {
     const planInfo = PLANS[plan];
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://samadoom.com';
 
-    const body = {
+    // Code parrain : priorité au code envoyé dans le body, sinon lire depuis le profil Firestore
+    const REFERRAL_DISCOUNT = 0.05;
+    let finalAmount = planInfo.amount;
+    let validatedReferralCode: string | null = null;
+    let referrerId: string | null = null;
+
+    const userSnap = await adminDb.collection('users').doc(userId).get();
+    const savedCode = (typeof bodyReferralCode === 'string' && /^[A-Za-z0-9]{3,20}$/.test(bodyReferralCode.trim()))
+      ? bodyReferralCode.trim().toUpperCase()
+      : (userSnap.data()?.savedReferralCode || null);
+
+    if (savedCode) {
+      const refSnap = await adminDb.collection('referralCodes').doc(savedCode).get();
+      if (refSnap.exists) {
+        const refData = refSnap.data()!;
+        if (refData.userId !== userId) {
+          finalAmount = Math.round(planInfo.amount * (1 - REFERRAL_DISCOUNT));
+          validatedReferralCode = savedCode;
+          referrerId = refData.userId;
+        }
+      }
+    }
+
+    const invoiceBody = {
       invoice: {
-        total_amount: planInfo.amount,
-        description: planInfo.description,
+        total_amount: finalAmount,
+        description: validatedReferralCode
+          ? `${planInfo.description} (-5% parrainage)`
+          : planInfo.description,
       },
       store: {
         name: 'Sama Doom',
@@ -55,7 +81,7 @@ export async function POST(req: NextRequest) {
         return_url: `${siteUrl}/abonnement/success?plan=${plan}`,
         callback_url: `${siteUrl}/api/paydunya/callback`,
       },
-      custom_data: { userId, userEmail, plan },
+      custom_data: { userId, userEmail, plan, referralCode: validatedReferralCode, referrerId },
     };
 
     const response = await fetch(`${PAYDUNYA_BASE_URL}/checkout-invoice/create`, {
@@ -67,7 +93,7 @@ export async function POST(req: NextRequest) {
         'PAYDUNYA-TOKEN': process.env.PAYDUNYA_TOKEN!,
         'PAYDUNYA-PUBLIC-KEY': process.env.PAYDUNYA_PUBLIC_KEY!,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(invoiceBody),
     });
 
     const data = await response.json();
@@ -77,11 +103,15 @@ export async function POST(req: NextRequest) {
 
     await adminDb.collection('payments').doc(data.token).set({
       userId, userEmail, plan,
-      amount: planInfo.amount,
+      amount: finalAmount,
+      originalAmount: planInfo.amount,
       currency: 'XOF',
       status: 'pending',
       provider: 'paydunya',
       token: data.token,
+      referralCode: validatedReferralCode,
+      referrerId,
+      discountApplied: Boolean(validatedReferralCode), // réduction accordée → commission due
       createdAt: new Date().toISOString(),
     });
 
@@ -89,6 +119,8 @@ export async function POST(req: NextRequest) {
       success: true,
       token: data.token,
       checkoutUrl: data.response_text || null,
+      discountApplied: validatedReferralCode ? REFERRAL_DISCOUNT * 100 : 0,
+      finalAmount,
     });
   } catch (err) {
     console.error('mobile-invoice error:', err);

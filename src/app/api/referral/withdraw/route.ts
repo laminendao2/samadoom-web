@@ -2,17 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue } from 'firebase-admin/firestore';
+import { paydunyaHeaders } from '@/lib/subscription';
+import { checkDisburseStatus, settleWithdrawal } from '@/lib/withdrawals';
 
 const PAYDUNYA_BASE = process.env.PAYDUNYA_MODE === 'live'
   ? 'https://app.paydunya.com/api/v2'
   : 'https://app.paydunya.com/sandbox-api/v2';
-
-const PAYDUNYA_HEADERS = {
-  'Content-Type': 'application/json',
-  'PAYDUNYA-MASTER-KEY':  process.env.PAYDUNYA_MASTER_KEY!,
-  'PAYDUNYA-PRIVATE-KEY': process.env.PAYDUNYA_PRIVATE_KEY!,
-  'PAYDUNYA-TOKEN':       process.env.PAYDUNYA_TOKEN!,
-};
 
 const WITHDRAW_MODE_MAP: Record<string, string> = {
   'orange-money': 'orange-money-senegal',
@@ -21,6 +16,7 @@ const WITHDRAW_MODE_MAP: Record<string, string> = {
 };
 
 const MIN_WITHDRAW = 2000; // FCFA
+const MAX_WITHDRAW = 500000; // FCFA par retrait
 
 export async function POST(req: NextRequest) {
   try {
@@ -37,25 +33,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Token invalide' }, { status: 401 });
     }
 
-    const { amount, phone, operator } = await req.json();
+    const { amount, operator } = await req.json();
 
-    // 2. Validation
-    if (!amount || !phone || !operator) {
-      return NextResponse.json({ error: 'Champs manquants (amount, phone, operator)' }, { status: 400 });
+    // 2. Validation montant et opérateur
+    if (!amount || !operator) {
+      return NextResponse.json({ error: 'Champs manquants (amount, operator)' }, { status: 400 });
+    }
+    // Le montant doit être un entier : une chaîne ou un décimal fausserait le solde
+    if (typeof amount !== 'number' || !Number.isInteger(amount) || amount > MAX_WITHDRAW) {
+      return NextResponse.json({ error: 'Montant invalide' }, { status: 400 });
+    }
+    if (typeof operator !== 'string') {
+      return NextResponse.json({ error: 'Champs invalides' }, { status: 400 });
     }
     if (amount < MIN_WITHDRAW) {
       return NextResponse.json({ error: `Montant minimum : ${MIN_WITHDRAW} FCFA` }, { status: 400 });
     }
-    const withdrawMode = WITHDRAW_MODE_MAP[operator];
+    const withdrawMode = Object.prototype.hasOwnProperty.call(WITHDRAW_MODE_MAP, operator)
+      ? WITHDRAW_MODE_MAP[operator]
+      : undefined;
     if (!withdrawMode) {
       return NextResponse.json({ error: 'Operateur non supporte' }, { status: 400 });
     }
-    const cleanPhone = phone.replace(/\s+/g, '').replace(/^(\+221|00221)/, '');
-    if (!/^\d{9}$/.test(cleanPhone)) {
-      return NextResponse.json({ error: 'Numero invalide (9 chiffres sans indicatif)' }, { status: 400 });
+
+    // 3a. Lire le numéro depuis le profil Firestore (sécurité : ne pas accepter le numéro du body)
+    const userDoc = await adminDb.collection('users').doc(uid).get();
+    const userData = userDoc.data();
+    const rawPhone: string = userData?.phone || '';
+    if (!rawPhone) {
+      return NextResponse.json({
+        error: 'Aucun numéro Mobile Money enregistré. Veuillez l\'ajouter dans votre profil avant de retirer.',
+        missingPhone: true,
+      }, { status: 400 });
+    }
+    const cleanPhone = rawPhone.replace(/\s+/g, '').replace(/^(\+\d{1,3}|00\d{1,3})/, '');
+    if (!/^\d{7,10}$/.test(cleanPhone)) {
+      return NextResponse.json({ error: 'Numéro enregistré invalide. Mettez à jour votre profil.' }, { status: 400 });
     }
 
-    // 3. Code de parrainage
+    // 3b. Code de parrainage
     const codesSnap = await adminDb.collection('referralCodes')
       .where('userId', '==', uid).limit(1).get();
     if (codesSnap.empty) {
@@ -66,6 +82,23 @@ export async function POST(req: NextRequest) {
 
     if (balance < amount) {
       return NextResponse.json({ error: `Solde insuffisant (${balance} FCFA disponibles)` }, { status: 400 });
+    }
+
+    // Un seul retrait en cours a la fois
+    const pendingSnap = await adminDb.collection('withdrawals')
+      .where('userId', '==', uid).where('status', '==', 'pending').limit(1).get();
+    if (!pendingSnap.empty) {
+      // On tente d'abord de le cloturer avec le statut reel chez PayDunya
+      const pendingDoc = pendingSnap.docs[0];
+      const pendingToken = pendingDoc.data().disburseToken;
+      const real = pendingToken ? await checkDisburseStatus(pendingToken) : 'unknown';
+      if (real === 'success') {
+        await settleWithdrawal(pendingDoc.id, 'paid');
+      } else if (real === 'failed') {
+        await settleWithdrawal(pendingDoc.id, 'failed', { failReason: 'Echec PayDunya' });
+      } else {
+        return NextResponse.json({ error: 'Un retrait est deja en cours de traitement' }, { status: 409 });
+      }
     }
 
     // 4. Transaction atomique : deduire solde + creer retrait
@@ -91,7 +124,7 @@ export async function POST(req: NextRequest) {
     // 5. PayDunya get-invoice
     const getInvoiceRes = await fetch(`${PAYDUNYA_BASE}/disburse/get-invoice`, {
       method: 'POST',
-      headers: PAYDUNYA_HEADERS,
+      headers: paydunyaHeaders(),
       body: JSON.stringify({
         account_alias: cleanPhone,
         amount: amount,
@@ -100,18 +133,13 @@ export async function POST(req: NextRequest) {
       }),
     });
     const getInvoiceData = await getInvoiceRes.json();
-    console.log('PayDunya get-invoice:', JSON.stringify(getInvoiceData));
+    console.log('PayDunya get-invoice:', getInvoiceData?.response_code);
 
     if (!getInvoiceData?.disburse_token) {
-      await adminDb.runTransaction(async (tx) => {
-        tx.update(codeDoc.ref, { balance: FieldValue.increment(amount) });
-        tx.update(withdrawalRef, {
-          status: 'failed',
-          failReason: getInvoiceData?.message ?? 'PayDunya error',
-          updatedAt: new Date().toISOString(),
-        });
-      });
-      return NextResponse.json({ error: getInvoiceData?.message ?? 'Erreur PayDunya' }, { status: 502 });
+      const failReason = String(getInvoiceData?.response_text ?? getInvoiceData?.message ?? 'PayDunya error');
+      console.error('PayDunya get-invoice FULL response:', JSON.stringify(getInvoiceData));
+      await settleWithdrawal(withdrawalRef.id, 'failed', { failReason });
+      return NextResponse.json({ error: `PayDunya: ${failReason}` }, { status: 502 });
     }
 
     const disburseToken: string = getInvoiceData.disburse_token;
@@ -119,17 +147,35 @@ export async function POST(req: NextRequest) {
     // 6. PayDunya submit-invoice
     const submitRes = await fetch(`${PAYDUNYA_BASE}/disburse/submit-invoice`, {
       method: 'POST',
-      headers: PAYDUNYA_HEADERS,
+      headers: paydunyaHeaders(),
       body: JSON.stringify({ disburse_invoice: disburseToken }),
     });
     const submitData = await submitRes.json();
-    console.log('PayDunya submit-invoice:', JSON.stringify(submitData));
+    console.log('PayDunya submit-invoice:', submitData?.response_code, submitData?.status);
 
     await withdrawalRef.update({
       disburseToken,
       paydunyaSubmitResponse: submitData,
       updatedAt: new Date().toISOString(),
     });
+
+    // 7. Issue du virement : on ne laisse pas un retrait "pending" si PayDunya a deja tranche
+    const submitStatus = String(submitData?.status ?? '').toLowerCase();
+    if (submitData?.response_code === '00' && submitStatus !== 'pending' && submitStatus !== 'failed') {
+      await settleWithdrawal(withdrawalRef.id, 'paid');
+    } else if (submitData?.response_code !== '00' || submitStatus === 'failed') {
+      // Reponse d'erreur : on demande le statut reel avant de rembourser
+      const real = await checkDisburseStatus(disburseToken);
+      if (real === 'success') {
+        await settleWithdrawal(withdrawalRef.id, 'paid');
+      } else if (real === 'failed' || real === 'created') {
+        await settleWithdrawal(withdrawalRef.id, 'failed', {
+          failReason: String(submitData?.response_text ?? 'Echec PayDunya'),
+        });
+        return NextResponse.json({ error: 'Le virement a echoue. Votre solde a ete recredite.' }, { status: 502 });
+      }
+      // pending / unknown : reste en attente, le webhook tranchera
+    }
 
     return NextResponse.json({
       success: true,

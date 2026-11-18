@@ -4,29 +4,59 @@ import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { getAuth } from 'firebase/auth';
 
-const BASE_PLANS = [
+interface Plan {
+  id: string;
+  name: string;
+  price: number; // prix facturé via Mobile Money (FCFA)
+  regularPrice?: number; // prix normal, affiché barré
+  launch?: boolean; // prix de lancement
+  stripePriceLabel?: string; // absent = pas de paiement par carte pour ce plan
+  currency: string;
+  period: string;
+  badge?: string;
+  features: string[];
+  highlight: boolean;
+}
+
+// Les montants FCFA doivent rester alignés avec src/lib/plans.ts (facturation serveur)
+const BASE_PLANS: Plan[] = [
+  {
+    id: 'semaine',
+    name: 'Hebdomadaire',
+    price: 500,
+    launch: true,
+    currency: 'FCFA',
+    period: '/semaine',
+    features: ['Accès à tout le Coran', 'Cours illimités', 'Suivi des progrès', 'Sans engagement'],
+    highlight: false,
+  },
   {
     id: 'mensuel',
     name: 'Mensuel',
-    price: 3000,
-    stripePriceUsd: 500, // centimes USD ($5)
+    price: 1500,
+    regularPrice: 3000,
+    launch: true,
+    stripePriceLabel: '€4.99',
     currency: 'FCFA',
     period: '/mois',
     features: ['Accès à tout le Coran', 'Cours illimités', 'Suivi des progrès', 'Support prioritaire'],
-    highlight: false,
+    highlight: true,
   },
   {
     id: 'annuel',
     name: 'Annuel',
-    price: 24000,
-    stripePriceUsd: 3900, // centimes USD ($39)
+    price: 15000,
+    regularPrice: 24000,
+    launch: true,
+    stripePriceLabel: '€39.99',
     currency: 'FCFA',
     period: '/an',
-    badge: 'Économise 33%',
-    features: ['Tout du plan Mensuel', '2 mois offerts', 'Accès famille (2 enfants)', 'Contenu exclusif'],
-    highlight: true,
+    features: ['Tout du plan Mensuel', 'Accès famille (2 enfants)', 'Contenu exclusif'],
+    highlight: false,
   },
 ];
+
+const PLAN_LABELS: Record<string, string> = { semaine: 'Hebdomadaire', mensuel: 'Mensuel', annuel: 'Annuel' };
 
 interface ReferralInfo {
   valid: boolean;
@@ -49,21 +79,42 @@ function AbonnementContent() {
   const [cancelSuccess, setCancelSuccess] = useState(false);
   const [showRenew, setShowRenew] = useState(false);
 
-  // Détecter le code dans l'URL (?ref=CODE)
+  // Pré-remplir avec le code sauvegardé sur le profil, ou depuis l'URL
   useEffect(() => {
     const refParam = searchParams.get('ref');
-    if (refParam) {
-      setReferralCode(refParam.toUpperCase());
-      validateCode(refParam.toUpperCase());
+    const savedCode = (profile as { savedReferralCode?: string } | null)?.savedReferralCode;
+    const code = refParam ? refParam.toUpperCase() : savedCode ? savedCode.toUpperCase() : null;
+    if (code) {
+      setReferralCode(code);
+      validateCode(code);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [searchParams, profile?.isPro]);
 
-  const validateCode = async (code: string) => {
+  // Si l'utilisateur revient depuis PayDunya après avoir annulé,
+  // on marque le paiement comme annulé dans Firestore (via le token stocké).
+  useEffect(() => {
+    const isCancelled = searchParams.get('status') === 'cancel';
+    if (!isCancelled) return;
+    const token = sessionStorage.getItem('paydunya_pending_token');
+    if (!token || !user) return;
+    sessionStorage.removeItem('paydunya_pending_token');
+    user.getIdToken().then(idToken => {
+      fetch('/api/paydunya/cancel-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ token }),
+      }).catch(() => { /* silencieux */ });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, user]);
+
+  /** Valide un code parrain. Retourne ses infos s'il est valide, sinon null (et affiche l'erreur). */
+  const validateCode = async (code: string): Promise<ReferralInfo | null> => {
     if (!code.trim()) {
       setReferralInfo(null);
       setReferralError('');
-      return;
+      return null;
     }
     setReferralLoading(true);
     setReferralError('');
@@ -72,14 +123,18 @@ function AbonnementContent() {
       const res = await fetch(`/api/referral/validate?code=${code.trim()}${userId}`);
       const data = await res.json();
       if (data.valid) {
-        setReferralInfo(data);
+        const info = { ...data, code: data.code ?? code.trim().toUpperCase() } as ReferralInfo;
+        setReferralInfo(info);
         setReferralError('');
-      } else {
-        setReferralInfo(null);
-        setReferralError(data.error || 'Code invalide');
+        return info;
       }
+      setReferralInfo(null);
+      setReferralError(data.error || 'Code invalide');
+      return null;
     } catch {
+      setReferralInfo(null);
       setReferralError('Impossible de valider le code');
+      return null;
     } finally {
       setReferralLoading(false);
     }
@@ -118,23 +173,41 @@ function AbonnementContent() {
     }
   };
 
+  /**
+   * Code parrain à envoyer avec le paiement. Un code tapé mais jamais « appliqué »
+   * (ou modifié après validation) est validé ici : il n'est plus ignoré en silence.
+   * Retourne undefined si le code saisi est refusé → le paiement est suspendu.
+   */
+  const referralForPayment = async (): Promise<string | null | undefined> => {
+    const typed = referralCode.trim().toUpperCase();
+    if (!typed) return null;
+    if (referralInfo?.valid && referralInfo.code?.toUpperCase() === typed) return referralInfo.code;
+    const info = await validateCode(typed);
+    if (info) return info.code;
+    setError(`Le code parrain « ${typed} » n'a pas pu être appliqué. Corrigez-le, ou effacez-le pour payer sans la réduction parrainage.`);
+    return undefined;
+  };
+
   const handlePaydunya = async (planId: string) => {
     if (!user) return;
     setError('');
     setLoading(planId);
     try {
+      const codeToSend = await referralForPayment();
+      if (codeToSend === undefined) return;
+      const idToken = await user.getIdToken();
       const res = await fetch('/api/paydunya/create-invoice', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
           plan: planId,
-          userId: user.uid,
-          userEmail: user.email,
-          referralCode: referralInfo?.valid ? referralInfo.code : null,
+          referralCode: codeToSend,
         }),
       });
       const data = await res.json();
       if (data.checkoutUrl) {
+        // Stocker le token PayDunya avant la redirection pour l'activer au retour
+        if (data.token) sessionStorage.setItem('paydunya_pending_token', data.token);
         window.location.href = data.checkoutUrl;
       } else {
         setError(data.error || 'Erreur lors de la création du paiement');
@@ -151,14 +224,15 @@ function AbonnementContent() {
     setError('');
     setLoading(`stripe-${planId}`);
     try {
+      const codeToSend = await referralForPayment();
+      if (codeToSend === undefined) return;
+      const idToken = await user.getIdToken();
       const res = await fetch('/api/stripe/create-checkout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
           plan: planId,
-          userId: user.uid,
-          userEmail: user.email,
-          referralCode: referralInfo?.valid ? referralInfo.code : null,
+          referralCode: codeToSend,
         }),
       });
       const data = await res.json();
@@ -175,7 +249,7 @@ function AbonnementContent() {
   };
 
   return (
-    <div style={{ padding: '32px 24px', maxWidth: 720, margin: '0 auto' }}>
+    <div style={{ padding: '32px 24px', maxWidth: 860, margin: '0 auto' }}>
       <h1 style={{ fontSize: 26, fontWeight: 900, color: '#111827', marginBottom: 8 }}>Abonnement Pro</h1>
       <p style={{ color: '#6b7280', marginBottom: 32 }}>Débloquez tout le contenu islamique pour vous et votre famille.</p>
 
@@ -193,7 +267,7 @@ function AbonnementContent() {
             <div>
               <p style={{ fontWeight: 700, color: '#166534', margin: 0 }}>Vous avez le Plan Pro !</p>
               <p style={{ fontSize: 13, color: '#15803d', margin: '2px 0 0' }}>
-                Plan : <strong>{profile.plan === 'mensuel' ? 'Mensuel' : profile.plan === 'annuel' ? 'Annuel' : profile.plan}</strong>
+                Plan : <strong>{(profile.plan && PLAN_LABELS[profile.plan]) || profile.plan}</strong>
                 {profile.planExpiresAt && (
                   <> · Expire le <strong>{new Date(profile.planExpiresAt).toLocaleDateString('fr-FR')}</strong></>
                 )}
@@ -336,10 +410,10 @@ function AbonnementContent() {
           </div>
         )}
         {referralError && (
-          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>⚠️</span>
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+            <span style={{ flexShrink: 0 }}>⚠️</span>
             <p style={{ fontSize: 13, color: '#b45309', margin: 0 }}>
-              {referralError} — vous pouvez continuer sans réduction.
+              {referralError}
             </p>
           </div>
         )}
@@ -352,10 +426,17 @@ function AbonnementContent() {
       )}
 
       {/* Plans */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20, marginBottom: 32 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 20, marginBottom: 32 }}>
         {BASE_PLANS.map(plan => {
           const discountedPrice = getDiscountedPrice(plan.price);
           const hasDiscount = referralInfo?.valid && discountedPrice < plan.price;
+          const struckPrice = plan.regularPrice && plan.regularPrice > discountedPrice
+            ? plan.regularPrice
+            : hasDiscount ? plan.price : null;
+          const topBadge = hasDiscount
+            ? `🎁 -${referralInfo!.discountPercent}% parrainage`
+            : plan.launch ? '🚀 Prix de lancement' : plan.badge;
+          const accent = hasDiscount || plan.launch;
 
           return (
             <div key={plan.id} style={{
@@ -366,38 +447,34 @@ function AbonnementContent() {
               border: plan.highlight ? '2px solid #166534' : '2px solid #e5e7eb',
               boxShadow: plan.highlight ? '0 8px 24px rgba(22,101,52,0.12)' : '0 2px 8px rgba(0,0,0,0.05)',
             }}>
-              {plan.badge && !hasDiscount && (
+              {topBadge && (
                 <div style={{
                   position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)',
-                  background: '#166534', color: 'white', fontSize: 11, fontWeight: 700,
+                  background: accent ? '#dc2626' : '#166534', color: 'white', fontSize: 11, fontWeight: 700,
                   padding: '4px 16px', borderRadius: 999, whiteSpace: 'nowrap',
                 }}>
-                  {plan.badge}
-                </div>
-              )}
-              {hasDiscount && (
-                <div style={{
-                  position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)',
-                  background: '#dc2626', color: 'white', fontSize: 11, fontWeight: 700,
-                  padding: '4px 16px', borderRadius: 999, whiteSpace: 'nowrap',
-                }}>
-                  🎁 -{referralInfo!.discountPercent}% parrainage
+                  {topBadge}
                 </div>
               )}
 
               <h3 style={{ fontSize: 20, fontWeight: 900, color: '#111827', marginBottom: 12 }}>{plan.name}</h3>
 
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 4 }}>
-                {hasDiscount && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 6, marginBottom: 4 }}>
+                {struckPrice && (
                   <span style={{ fontSize: 20, color: '#9ca3af', textDecoration: 'line-through' }}>
-                    {plan.price.toLocaleString('fr-FR')}
+                    {struckPrice.toLocaleString('fr-FR')}
                   </span>
                 )}
-                <span style={{ fontSize: 36, fontWeight: 900, color: hasDiscount ? '#dc2626' : '#111827' }}>
+                <span style={{ fontSize: 36, fontWeight: 900, color: accent ? '#dc2626' : '#111827' }}>
                   {discountedPrice.toLocaleString('fr-FR')}
                 </span>
-                <span style={{ color: '#6b7280', fontSize: 14 }}>{plan.currency}{plan.period}</span>
+                <span style={{ color: '#6b7280', fontSize: 14, whiteSpace: 'nowrap' }}>{plan.currency}{plan.period}</span>
               </div>
+              {plan.launch && (
+                <p style={{ fontSize: 12, color: '#b91c1c', fontWeight: 600, margin: '4px 0 0' }}>
+                  Prix de lancement — paiement Mobile Money uniquement
+                </p>
+              )}
 
               <ul style={{ listStyle: 'none', padding: 0, margin: '16px 0 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {plan.features.map(f => (
@@ -428,7 +505,8 @@ function AbonnementContent() {
                 {loading === plan.id ? 'Redirection…' : '🌍 Mobile Money (Orange, Wave…)'}
               </button>
 
-              {/* Bouton Stripe */}
+              {/* Bouton Stripe (prix en EUR — taux fixe CFA, hors prix de lancement) */}
+              {plan.stripePriceLabel && (
               <button
                   disabled={loading === `stripe-${plan.id}`}
                   onClick={() => handleStripe(plan.id)}
@@ -444,8 +522,9 @@ function AbonnementContent() {
                     cursor: loading === `stripe-${plan.id}` ? 'not-allowed' : 'pointer',
                     opacity: loading === `stripe-${plan.id}` ? 0.7 : 1,
                   }}>
-                  {loading === `stripe-${plan.id}` ? 'Redirection…' : '💳 Carte bancaire internationale'}
+                  {loading === `stripe-${plan.id}` ? 'Redirection…' : `💳 Carte bancaire internationale (${plan.stripePriceLabel})`}
                 </button>
+              )}
             </div>
           );
         })}
@@ -487,7 +566,7 @@ function AbonnementContent() {
           💳 Carte bancaire internationale (Stripe)
         </h3>
         <p style={{ fontSize: 13, color: '#475569', marginBottom: 16 }}>
-          Visa, Mastercard, Apple Pay, Google Pay — pour les utilisateurs hors Afrique. Paiement en USD.
+          Visa, Mastercard, Apple Pay, Google Pay — pour les utilisateurs hors Afrique. Paiement en EUR (taux fixe avec le FCFA).
         </p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           {[
