@@ -22,6 +22,8 @@ export interface UserProfile {
   planExpiresAt?: string | null;
   planCancelledAt?: string | null;
   cancelAtPeriodEnd?: boolean;
+  referredBy?: string | null;
+  createdAt?: Date | null;
 }
 
 interface AuthContextValue {
@@ -29,7 +31,7 @@ interface AuthContextValue {
   profile: UserProfile | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, name: string, role: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string, role: string, referralCode?: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   switchRole: (role: string) => void;
@@ -92,6 +94,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             planExpiresAt: data.planExpiresAt || null,
             planCancelledAt: data.planCancelledAt || null,
             cancelAtPeriodEnd: data.cancelAtPeriodEnd || false,
+            referredBy: data.referredBy || null,
+            createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : null,
           } as UserProfile);
         }
       } else {
@@ -106,11 +110,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signInWithEmailAndPassword(auth, email, password);
   };
 
-  const signUp = async (email: string, password: string, name: string, role: string) => {
+  const signUp = async (email: string, password: string, name: string, role: string, referralCode?: string) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     await setDoc(doc(db, 'users', cred.user.uid), {
       name, email, role, roles: [role], isPro: false, createdAt: serverTimestamp(),
     });
+    // Enregistrer le code de parrainage si fourni
+    if (referralCode) {
+      try {
+        const idToken = await cred.user.getIdToken();
+        await fetch('/api/referral/use', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+          body: JSON.stringify({ code: referralCode }),
+        });
+      } catch (e) {
+        // Non bloquant — l'inscription réussit même si le parrainage échoue
+        console.warn('Referral use error:', e);
+      }
+    }
   };
 
   const signInWithGoogle = async () => {

@@ -25,10 +25,24 @@ function RegisterForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPwd, setShowPwd] = useState(false);
+  const [referralCode, setReferralCode] = useState('');
+  const [referralStatus, setReferralStatus] = useState<'idle'|'checking'|'valid'|'invalid'>('idle');
+  const [referralName, setReferralName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { signUp, signInWithGoogle } = useAuth();
   const router = useRouter();
+
+  const validateReferral = async (code: string) => {
+    if (!code.trim()) { setReferralStatus('idle'); setReferralName(''); return; }
+    setReferralStatus('checking');
+    try {
+      const res = await fetch(`/api/referral/validate?code=${encodeURIComponent(code.trim())}`);
+      const data = await res.json();
+      if (data.valid) { setReferralStatus('valid'); setReferralName(data.referrerName || ''); }
+      else { setReferralStatus('invalid'); setReferralName(''); }
+    } catch { setReferralStatus('invalid'); setReferralName(''); }
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,7 +50,7 @@ function RegisterForm() {
     if (password.length < 6) { setError('Le mot de passe doit avoir au moins 6 caractères'); return; }
     setLoading(true);
     try {
-      await signUp(email, password, name, roleKey);
+      await signUp(email, password, name, roleKey, referralStatus === 'valid' ? referralCode.trim().toUpperCase() : undefined);
       router.replace('/dashboard');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
@@ -107,6 +121,26 @@ function RegisterForm() {
                 {showPwd ? '🙈' : '👁'}
               </button>
             </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>Code de parrainage <span style={{ color: '#9ca3af', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optionnel)</span></label>
+            <div style={{ display: 'flex', alignItems: 'center', background: referralStatus === 'valid' ? '#f0fdf4' : referralStatus === 'invalid' ? '#fef2f2' : '#f3f4f6', borderRadius: 12, padding: '12px 16px', gap: 12, border: referralStatus === 'valid' ? '1.5px solid #22c55e' : referralStatus === 'invalid' ? '1.5px solid #ef4444' : '1.5px solid transparent', transition: 'all 0.2s' }}>
+              <span style={{ color: '#9ca3af' }}>🎁</span>
+              <input
+                type="text"
+                value={referralCode}
+                onChange={e => { setReferralCode(e.target.value.toUpperCase()); if (e.target.value.length >= 5) validateReferral(e.target.value); else { setReferralStatus('idle'); setReferralName(''); } }}
+                onBlur={() => validateReferral(referralCode)}
+                placeholder="Ex: CHEIKH4821"
+                style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 14, color: '#1f2937', textTransform: 'uppercase' }}
+              />
+              {referralStatus === 'checking' && <span style={{ fontSize: 12, color: '#9ca3af' }}>…</span>}
+              {referralStatus === 'valid' && <span style={{ fontSize: 14, color: '#22c55e', fontWeight: 700 }}>✓</span>}
+              {referralStatus === 'invalid' && <span style={{ fontSize: 14, color: '#ef4444', fontWeight: 700 }}>✗</span>}
+            </div>
+            {referralStatus === 'valid' && <p style={{ fontSize: 12, color: '#16a34a', margin: '4px 0 0 4px', fontWeight: 600 }}>✓ Parrainé par {referralName}</p>}
+            {referralStatus === 'invalid' && <p style={{ fontSize: 12, color: '#ef4444', margin: '4px 0 0 4px' }}>Code invalide ou expiré</p>}
           </div>
 
           {error && <p style={{ color: '#ef4444', fontSize: 13, textAlign: 'center', margin: 0 }}>{error}</p>}
