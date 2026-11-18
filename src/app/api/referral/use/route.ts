@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
     // Vérifier que l'utilisateur ne l'a pas déjà utilisé
     const userSnap = await adminDb.collection('users').doc(newUserId).get();
-    if (userSnap.exists() && userSnap.data()?.referredBy) {
+    if (userSnap.exists && userSnap.data()?.referredBy) {
       return NextResponse.json({ error: 'Code déjà utilisé' }, { status: 400 });
     }
 
