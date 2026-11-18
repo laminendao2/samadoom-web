@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
-import { verifyIdToken } from '@/lib/server-auth';
+import { verifyRequestUser } from '@/lib/server-auth';
 import { FieldValue } from 'firebase-admin/firestore';
 
 /**
@@ -14,7 +14,7 @@ import { FieldValue } from 'firebase-admin/firestore';
  */
 export async function POST(req: NextRequest) {
   try {
-    const decoded = await verifyIdToken(req);
+    const decoded = await verifyRequestUser(req);
     if (!decoded) {
       return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
     }
