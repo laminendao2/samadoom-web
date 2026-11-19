@@ -37,7 +37,10 @@ setInterval(() => {
 export async function POST(req: NextRequest) {
   try {
     // 1) Auth Firebase obligatoire
-    const authHeader = req.headers.get('Authorization');
+    // Accepte le token depuis Authorization OU X-Firebase-Token (fallback si Cloudflare WAF strip Authorization)
+    const rawAuth = req.headers.get('Authorization');
+    const customToken = req.headers.get('X-Firebase-Token') || req.headers.get('x-firebase-token');
+    const authHeader = rawAuth ?? (customToken ? `Bearer ${customToken}` : null);
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
     }
