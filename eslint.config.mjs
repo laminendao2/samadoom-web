@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Mobile files accidentally present in web repo:
+    "src/services/iap.js",
+    "src/services/**/*.js",
+    "App.js",
+    "app.json",
+    "plugins/**",
   ]),
 ]);
 
