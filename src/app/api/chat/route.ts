@@ -3,6 +3,9 @@ import { getAuth } from 'firebase-admin/auth';
 import { adminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 
+// Même région que PayDunya — évite les blocages Cloudflare WAF depuis les régions US
+export const preferredRegion = 'cdg1';
+
 const GEMINI_MODEL    = 'gemini-1.5-flash';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
