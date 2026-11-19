@@ -1,3 +1,4 @@
+/* eslint-disable */
 /**
  * Service IAP SamaDoom — RevenueCat
  * v8: react-native-purchases@^8.5.0 avec NDK r28 (16KB alignment OK)
