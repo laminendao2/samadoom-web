@@ -6,7 +6,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 // Même région que PayDunya — évite les blocages Cloudflare WAF depuis les régions US
 export const preferredRegion = 'cdg1';
 
-const GEMINI_MODEL    = 'gemini-1.5-flash';
+const GEMINI_MODEL    = 'gemini-2.0-flash';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 // ── Rate limiting en mémoire (reset au redémarrage Vercel) ───────────────────
@@ -107,9 +107,9 @@ export async function POST(req: NextRequest) {
     }
 
     // 6) Appel Gemini
-    const geminiRes = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+    const geminiRes = await fetch(GEMINI_ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({
         contents,
         generationConfig: {
