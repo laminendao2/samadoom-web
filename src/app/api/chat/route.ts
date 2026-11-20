@@ -55,7 +55,8 @@ export async function POST(req: NextRequest) {
     // 4) Clé Gemini depuis variable d'environnement (jamais exposée au client)
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: 'Service IA non configuré' }, { status: 503 });
+      // Réponse différente de l'erreur Gemini pour diagnostic : 401 → app affiche "Session expirée"
+      return NextResponse.json({ error: 'Clé API manquante - 401' }, { status: 401 });
     }
 
     // 5) Construction du payload Gemini
