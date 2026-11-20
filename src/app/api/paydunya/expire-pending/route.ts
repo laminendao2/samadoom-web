@@ -4,7 +4,7 @@ import { verifyRequestUser, isSuperAdminUid } from '@/lib/server-auth';
 import { activatePaydunyaPayment } from '@/lib/subscription';
 
 export const preferredRegion = 'cdg1';
-export const dynamic = 'force-dynamic';
+
 
 const EXPIRY_HOURS = Number(process.env.PENDING_EXPIRY_HOURS ?? '2');
 
