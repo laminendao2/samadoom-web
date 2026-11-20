@@ -6,13 +6,13 @@ import { FieldValue } from 'firebase-admin/firestore';
 // Même région que PayDunya — évite les blocages Cloudflare WAF depuis les régions US
 export const preferredRegion = 'cdg1';
 
-const GEMINI_MODEL    = 'gemini-3.5-flash';
+const GEMINI_MODEL    = 'gemini-2.0-flash';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 // ── Rate limiting en mémoire (reset au redémarrage Vercel) ───────────────────
 // Pour une protection plus robuste, utiliser Upstash Redis
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const MAX_REQUESTS_PER_MINUTE = 30; // par utilisateur
+const MAX_REQUESTS_PER_MINUTE = 10; // par utilisateur
 
 function checkRateLimit(uid: string): boolean {
   const now = Date.now();
@@ -106,44 +106,29 @@ export async function POST(req: NextRequest) {
       contents.push({ role: 'user', parts: [{ text: userText }] });
     }
 
-    // 6) Appel Gemini avec retry automatique sur 429
+    // 6) Appel Gemini — clé en query param (compatible AQ. et AIzaSy...)
     const geminiUrl = `${GEMINI_ENDPOINT}?key=${encodeURIComponent(apiKey)}`;
-    const geminiPayload = JSON.stringify({
-      contents,
-      generationConfig: {
-        maxOutputTokens: 1500,
-        temperature: 0.7,
-      },
-      safetySettings: [
-        { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-      ],
-    });
-
-    let geminiRes = await fetch(geminiUrl, {
+    const geminiRes = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: geminiPayload,
+      body: JSON.stringify({
+        contents,
+        generationConfig: {
+          maxOutputTokens: 512,
+          temperature: 0.7,
+        },
+        safetySettings: [
+          { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+          { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        ],
+      }),
     });
-
-    // Retry une fois après 2s si 429 (rate limit Gemini)
-    if (geminiRes.status === 429) {
-      await new Promise(r => setTimeout(r, 2000));
-      geminiRes = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: geminiPayload,
-      });
-    }
 
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
       console.error('Gemini error:', geminiRes.status, errText);
-      if (geminiRes.status === 429) {
-        return NextResponse.json({ error: 'Sama IA est surchargée, réessaie dans quelques secondes.' }, { status: 429 });
-      }
       return NextResponse.json({ error: 'Erreur IA (' + geminiRes.status + ')' }, { status: 502 });
     }
 
