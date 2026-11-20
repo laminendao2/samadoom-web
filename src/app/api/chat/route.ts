@@ -118,14 +118,13 @@ export async function POST(req: NextRequest) {
     if (!geminiRes!.ok) {
       const errText = await geminiRes!.text();
       console.error('Gemini error (final):', geminiRes!.status, errText.slice(0, 300));
-      // Ne PAS inclure le code HTTP dans le message d'erreur retourné au client
-      // (évite que "429" dans la chaîne déclenche le message "Attends" sur mobile)
       if (geminiRes!.status === 429) {
-        // Retourner status 429 sans message d'erreur → vieux app construit "Erreur 429" → msg.includes('429') = true
-        // Nouveau app (OTA) gère quota_exceeded/503 ET 429 → retrocompatible
+        // Status 429 sans body → vieux app construit "Erreur 429" → msg.includes('429') = true → "Attends"
         return NextResponse.json({}, { status: 429 });
       }
-      return NextResponse.json({ error: 'Erreur IA' }, { status: 502 });
+      // Toutes les autres erreurs Gemini (400, 403, 500...) → 503 avec 'non configuré'
+      // Vieux app : msg.includes('non configuré') = true → "🛠️ service temporairement indisponible"
+      return NextResponse.json({ error: 'Service IA non configuré' }, { status: 503 });
     }
 
     const data = await geminiRes!.json();
