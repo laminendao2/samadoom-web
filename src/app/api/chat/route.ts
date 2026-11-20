@@ -86,14 +86,14 @@ export async function POST(req: NextRequest) {
     const geminiPayload = JSON.stringify({
       contents,
       generationConfig: {
-        maxOutputTokens: 512,
+        maxOutputTokens: 1024,
         temperature: 0.7,
       },
       safetySettings: [
-        { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_ONLY_HIGH' },
         { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
       ],
     });
 
@@ -127,7 +127,25 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await geminiRes!.json();
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '…';
+    const candidate = data.candidates?.[0];
+    const finishReason = candidate?.finishReason;
+    const reply = candidate?.content?.parts?.[0]?.text ?? '';
+
+    // Log les réponses inattendues (safety filter, max tokens, etc.)
+    if (finishReason && finishReason !== 'STOP') {
+      console.error('Gemini finishReason non-STOP:', finishReason, '| reply:', reply.slice(0, 100));
+    }
+
+    // Si safety filter a tout bloqué → message neutre
+    if (!reply && finishReason === 'SAFETY') {
+      return NextResponse.json(
+        { text: "Je ne peux pas répondre à cette question. Essaie de reformuler.", reply: "Je ne peux pas répondre à cette question. Essaie de reformuler." },
+        { status: 200 }
+      );
+    }
+
+    // Réponse vide ou trop courte sans finishReason STOP → erreur
+    const finalReply = reply || '…';
 
     // 7) Log usage (optionnel, pour stats) — fire and forget
     try {
@@ -135,13 +153,14 @@ export async function POST(req: NextRequest) {
         uid,
         lang: lang ?? 'fr',
         inputLen: userText.length,
-        outputLen: reply.length,
+        outputLen: finalReply.length,
+        finishReason: finishReason ?? 'STOP',
         createdAt: FieldValue.serverTimestamp(),
       });
     } catch { /* non bloquant */ }
 
     // Retourne "text" (mobile) ET "reply" (web) pour compatibilité
-    return NextResponse.json({ text: reply, reply });
+    return NextResponse.json({ text: finalReply, reply: finalReply });
 
   } catch (err) {
     console.error('Chat API error:', err);
