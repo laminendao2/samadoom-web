@@ -13,7 +13,11 @@ export default function ReferralModal() {
   // Afficher le modal si : connecté + pas de referredBy + pas déjà ignoré
   useEffect(() => {
     if (!user || !profile) return;
-    if ((profile as any).referredBy) return; // déjà parrainé
+    // Si l'utilisateur a déjà un parrain (même chargé après coup), cacher immédiatement
+    if ((profile as any).referredBy) {
+      setVisible(false);
+      return;
+    }
     const key = `referral_skipped_${user.uid}`;
     if (localStorage.getItem(key)) return;    // déjà ignoré
     // Afficher seulement pour les comptes récents (< 7 jours)
