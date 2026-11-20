@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
     const geminiPayload = JSON.stringify({
       contents,
       generationConfig: {
-        maxOutputTokens: 1024,
+        maxOutputTokens: 2048,
         // temperature supprimé : paramètre déprécié dans Gemini 3.6 Flash → causait erreur 400
       },
       safetySettings: [
