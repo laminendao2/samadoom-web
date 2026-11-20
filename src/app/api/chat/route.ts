@@ -90,10 +90,10 @@ export async function POST(req: NextRequest) {
         temperature: 0.7,
       },
       safetySettings: [
-        { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_ONLY_HIGH' },
-        { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
         { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
       ],
     });
 
@@ -121,7 +121,9 @@ export async function POST(req: NextRequest) {
       // Ne PAS inclure le code HTTP dans le message d'erreur retourné au client
       // (évite que "429" dans la chaîne déclenche le message "Attends" sur mobile)
       if (geminiRes!.status === 429) {
-        return NextResponse.json({ error: 'quota_exceeded' }, { status: 503 });
+        // Retourner status 429 sans message d'erreur → vieux app construit "Erreur 429" → msg.includes('429') = true
+        // Nouveau app (OTA) gère quota_exceeded/503 ET 429 → retrocompatible
+        return NextResponse.json({}, { status: 429 });
       }
       return NextResponse.json({ error: 'Erreur IA' }, { status: 502 });
     }
