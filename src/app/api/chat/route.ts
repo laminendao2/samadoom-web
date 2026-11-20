@@ -9,30 +9,10 @@ export const preferredRegion = 'cdg1';
 const GEMINI_MODEL    = 'gemini-3.6-flash';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
-// ── Rate limiting en mémoire (reset au redémarrage Vercel) ───────────────────
-// Pour une protection plus robuste, utiliser Upstash Redis
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const MAX_REQUESTS_PER_MINUTE = 30; // par utilisateur
-
-function checkRateLimit(uid: string): boolean {
-  const now = Date.now();
-  const entry = rateLimitMap.get(uid);
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(uid, { count: 1, resetAt: now + 60_000 });
-    return true;
-  }
-  if (entry.count >= MAX_REQUESTS_PER_MINUTE) return false;
-  entry.count++;
-  return true;
-}
-
-// ── Nettoyage mémoire (évite fuite mémoire) ──────────────────────────────────
-setInterval(() => {
-  const now = Date.now();
-  for (const [uid, entry] of rateLimitMap.entries()) {
-    if (now > entry.resetAt) rateLimitMap.delete(uid);
-  }
-}, 5 * 60_000);
+// ── Rate limiting supprimé (en mémoire = non fiable sur Vercel serverless) ────
+// Chaque instance Vercel a sa propre mémoire → les anciennes instances
+// continuent à servir des requêtes après un redéploiement avec leur compteur plein.
+// Protection assurée par : Firebase Auth (uid vérifié) + quotas Gemini API.
 
 export async function POST(req: NextRequest) {
   try {
@@ -53,13 +33,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Token invalide' }, { status: 401 });
     }
 
-    // 2) Rate limiting : max 30 messages/minute par utilisateur
-    if (!checkRateLimit(uid)) {
-      return NextResponse.json(
-        { error: 'Trop de messages. Attends une minute.' },
-        { status: 429 }
-      );
-    }
+    // 2) [Rate limiting supprimé — non fiable sur Vercel serverless]
+    // Les quotas Gemini API + Firebase Auth protègent la route.
 
     // 3) Validation du body
     const body = await req.json();
