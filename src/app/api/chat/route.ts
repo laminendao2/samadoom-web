@@ -12,7 +12,7 @@ const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models
 // ── Rate limiting en mémoire (reset au redémarrage Vercel) ───────────────────
 // Pour une protection plus robuste, utiliser Upstash Redis
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const MAX_REQUESTS_PER_MINUTE = 10; // par utilisateur
+const MAX_REQUESTS_PER_MINUTE = 30; // par utilisateur
 
 function checkRateLimit(uid: string): boolean {
   const now = Date.now();
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Token invalide' }, { status: 401 });
     }
 
-    // 2) Rate limiting : max 10 messages/minute par utilisateur
+    // 2) Rate limiting : max 30 messages/minute par utilisateur
     if (!checkRateLimit(uid)) {
       return NextResponse.json(
         { error: 'Trop de messages. Attends une minute.' },
