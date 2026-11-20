@@ -104,7 +104,12 @@ export async function POST(req: NextRequest) {
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
       console.error('Gemini error:', geminiRes.status, errText);
-      return NextResponse.json({ error: 'Erreur IA (' + geminiRes.status + ')' }, { status: 502 });
+      // Ne PAS inclure le code HTTP dans le message d'erreur retourné au client
+      // (évite que "429" dans la chaîne déclenche le message "Attends" sur mobile)
+      if (geminiRes.status === 429) {
+        return NextResponse.json({ error: 'quota_exceeded' }, { status: 503 });
+      }
+      return NextResponse.json({ error: 'Erreur IA' }, { status: 502 });
     }
 
     const data = await geminiRes.json();
