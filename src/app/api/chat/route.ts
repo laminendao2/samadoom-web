@@ -81,38 +81,52 @@ export async function POST(req: NextRequest) {
       contents.push({ role: 'user', parts: [{ text: userText }] });
     }
 
-    // 6) Appel Gemini — clé en query param (compatible AQ. et AIzaSy...)
+    // 6) Appel Gemini avec retry automatique sur 429 (rate limit par minute)
     const geminiUrl = `${GEMINI_ENDPOINT}?key=${encodeURIComponent(apiKey)}`;
-    const geminiRes = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents,
-        generationConfig: {
-          maxOutputTokens: 512,
-          temperature: 0.7,
-        },
-        safetySettings: [
-          { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-          { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        ],
-      }),
+    const geminiPayload = JSON.stringify({
+      contents,
+      generationConfig: {
+        maxOutputTokens: 512,
+        temperature: 0.7,
+      },
+      safetySettings: [
+        { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+      ],
     });
 
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
-      console.error('Gemini error:', geminiRes.status, errText);
+    let geminiRes: Response | null = null;
+    // 3 tentatives : immédiat → +2s → +4s (utile si limite RPM atteinte momentanément)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        await new Promise(r => setTimeout(r, 2000 * attempt));
+      }
+      geminiRes = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: geminiPayload,
+      });
+      if (geminiRes.ok || geminiRes.status !== 429) break;
+      const errPreview = await geminiRes.text();
+      console.error(`Gemini error (attempt ${attempt + 1}/3):`, geminiRes.status, errPreview.slice(0, 300));
+      // Clone la réponse pour relecture (fetch body ne peut être lu qu'une fois)
+      geminiRes = new Response(errPreview, { status: geminiRes.status, headers: geminiRes.headers });
+    }
+
+    if (!geminiRes!.ok) {
+      const errText = await geminiRes!.text();
+      console.error('Gemini error (final):', geminiRes!.status, errText.slice(0, 300));
       // Ne PAS inclure le code HTTP dans le message d'erreur retourné au client
       // (évite que "429" dans la chaîne déclenche le message "Attends" sur mobile)
-      if (geminiRes.status === 429) {
+      if (geminiRes!.status === 429) {
         return NextResponse.json({ error: 'quota_exceeded' }, { status: 503 });
       }
       return NextResponse.json({ error: 'Erreur IA' }, { status: 502 });
     }
 
-    const data = await geminiRes.json();
+    const data = await geminiRes!.json();
     const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '…';
 
     // 7) Log usage (optionnel, pour stats) — fire and forget
