@@ -106,29 +106,44 @@ export async function POST(req: NextRequest) {
       contents.push({ role: 'user', parts: [{ text: userText }] });
     }
 
-    // 6) Appel Gemini — clé en query param (compatible AQ. et AIzaSy...)
+    // 6) Appel Gemini avec retry automatique sur 429
     const geminiUrl = `${GEMINI_ENDPOINT}?key=${encodeURIComponent(apiKey)}`;
-    const geminiRes = await fetch(geminiUrl, {
+    const geminiPayload = JSON.stringify({
+      contents,
+      generationConfig: {
+        maxOutputTokens: 1500,
+        temperature: 0.7,
+      },
+      safetySettings: [
+        { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+      ],
+    });
+
+    let geminiRes = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents,
-        generationConfig: {
-          maxOutputTokens: 1500,
-          temperature: 0.7,
-        },
-        safetySettings: [
-          { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-          { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        ],
-      }),
+      body: geminiPayload,
     });
+
+    // Retry une fois après 2s si 429 (rate limit Gemini)
+    if (geminiRes.status === 429) {
+      await new Promise(r => setTimeout(r, 2000));
+      geminiRes = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: geminiPayload,
+      });
+    }
 
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
       console.error('Gemini error:', geminiRes.status, errText);
+      if (geminiRes.status === 429) {
+        return NextResponse.json({ error: 'Sama IA est surchargée, réessaie dans quelques secondes.' }, { status: 429 });
+      }
       return NextResponse.json({ error: 'Erreur IA (' + geminiRes.status + ')' }, { status: 502 });
     }
 
