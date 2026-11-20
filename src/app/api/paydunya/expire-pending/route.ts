@@ -33,7 +33,7 @@ async function runExpiry() {
 
     try {
       const result = await activatePaydunyaPayment(token);
-      if (result.status === 'completed') {
+      if (result.result === 'activated' || result.result === 'already') {
         activated++;
       } else {
         await doc.ref.update({ status: 'expired', expiredAt: new Date().toISOString() });
