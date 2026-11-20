@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         contents,
         generationConfig: {
-          maxOutputTokens: 800,
+          maxOutputTokens: 1500,
           temperature: 0.7,
         },
         safetySettings: [
