@@ -106,10 +106,11 @@ export async function POST(req: NextRequest) {
       contents.push({ role: 'user', parts: [{ text: userText }] });
     }
 
-    // 6) Appel Gemini
-    const geminiRes = await fetch(GEMINI_ENDPOINT, {
+    // 6) Appel Gemini — clé en query param (compatible AQ. et AIzaSy...)
+    const geminiUrl = `${GEMINI_ENDPOINT}?key=${encodeURIComponent(apiKey)}`;
+    const geminiRes = await fetch(geminiUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents,
         generationConfig: {
