@@ -206,6 +206,25 @@ export default function SuperAdminDashboard() {
     loadFinance();
   }, [profile, isSuperAdmin, rangeReady, fromIso, toIso]);
 
+  async function expirePendingPayments() {
+    setExpireLoading(true);
+    setExpireResult(null);
+    try {
+      const idToken = await getAuth().currentUser?.getIdToken();
+      const res = await fetch('/api/paydunya/expire-pending', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      setExpireResult({ checked: data.checked ?? 0, expired: data.expired ?? 0, activated: data.activated ?? 0 });
+      await Promise.all([loadAll(), loadFinance()]);
+    } catch {
+      setExpireResult({ checked: 0, expired: 0, activated: 0 });
+    } finally {
+      setExpireLoading(false);
+    }
+  }
+
   async function retryStripePayments() {
     setRetryLoading(true);
     setRetryResult(null);
@@ -223,24 +242,6 @@ export default function SuperAdminDashboard() {
       setRetryResult({ activated: 0, already: 0, cancelled: 0, total: 0 });
     } finally {
       setRetryLoading(false);
-    }
-  }
-
-  async function expirePendingPayments() {
-    setExpireLoading(true);
-    setExpireResult(null);
-    try {
-      const idToken = await getAuth().currentUser?.getIdToken();
-      const res = await fetch('/api/paydunya/expire-pending', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${idToken}` },
-      });
-      const data = await res.json();
-      setExpireResult(data);
-    } catch {
-      setExpireResult({ checked: 0, expired: 0, activated: 0 });
-    } finally {
-      setExpireLoading(false);
     }
   }
 
@@ -546,18 +547,6 @@ export default function SuperAdminDashboard() {
                     ✅ {retryResult.activated} activés · ⏭ {retryResult.already} déjà actifs · ❌ {retryResult.cancelled} annulés
                   </span>
                 )}
-                {expireResult && (
-                  <span className="text-xs text-gray-500 bg-gray-50 px-3 py-1 rounded-full">
-                    🔍 {expireResult.checked} vérifiés · ⌛ {expireResult.expired} expirés · ✅ {expireResult.activated} activés
-                  </span>
-                )}
-                <button
-                  onClick={expirePendingPayments}
-                  disabled={expireLoading}
-                  className="text-xs font-semibold px-3 py-1.5 rounded-full bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {expireLoading ? '⏳ Vérification…' : '🗑️ Expirer En attente'}
-                </button>
                 <button
                   onClick={retryStripePayments}
                   disabled={retryLoading}
@@ -565,6 +554,18 @@ export default function SuperAdminDashboard() {
                 >
                   {retryLoading ? '⏳ Vérification…' : '🔄 Régulariser Stripe'}
                 </button>
+                <button
+                  onClick={expirePendingPayments}
+                  disabled={expireLoading}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-full bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {expireLoading ? '⏳ Vérification…' : '🗑️ Expirer En attente'}
+                </button>
+                {expireResult && (
+                  <span className="text-xs text-gray-500 bg-gray-50 px-3 py-1 rounded-full">
+                    🔍 {expireResult.checked} vérifiés · ⌛ {expireResult.expired} expirés · ✅ {expireResult.activated} activés
+                  </span>
+                )}
                 <span className="text-xs text-gray-400">{paymentsLoading ? 'Chargement…' : `${recentPayments.length} derniers`}</span>
               </div>
             </div>
@@ -592,10 +593,7 @@ export default function SuperAdminDashboard() {
                         p.status === 'expired'   ? 'bg-gray-100 text-gray-500' :
                                                    'bg-red-100 text-red-600'
                       }`}>
-                        {p.status === 'completed' ? '✓ Payé' :
-                         p.status === 'pending'   ? '⏳ En attente' :
-                         p.status === 'expired'   ? '⌛ Expiré' :
-                                                    '✗ Échoué'}
+                        {p.status === 'completed' ? '✓ Payé' : p.status === 'pending' ? '⏳ En attente' : p.status === 'expired' ? '⌛ Expiré' : '✗ Échoué'}
                       </span>
                       <span className="text-xs text-gray-400">
                         {p.createdAt ? tsToDate(p.createdAt).toLocaleDateString('fr-FR') : '—'}
