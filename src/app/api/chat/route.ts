@@ -12,7 +12,7 @@ const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models
 // ── Rate limiting en mémoire (reset au redémarrage Vercel) ───────────────────
 // Pour une protection plus robuste, utiliser Upstash Redis
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const MAX_REQUESTS_PER_MINUTE = 10; // par utilisateur
+const MAX_REQUESTS_PER_MINUTE = 30; // par utilisateur
 
 function checkRateLimit(uid: string): boolean {
   const now = Date.now();
