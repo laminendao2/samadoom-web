@@ -117,14 +117,19 @@ export async function POST(req: NextRequest) {
 
     if (!geminiRes!.ok) {
       const errText = await geminiRes!.text();
-      console.error('Gemini error (final):', geminiRes!.status, errText.slice(0, 300));
-      if (geminiRes!.status === 429) {
+      const geminiStatus = geminiRes!.status;
+      console.error('Gemini error (final):', geminiStatus, errText.slice(0, 500));
+      if (geminiStatus === 429) {
         // Status 429 sans body → vieux app construit "Erreur 429" → msg.includes('429') = true → "Attends"
         return NextResponse.json({}, { status: 429 });
       }
-      // Toutes les autres erreurs Gemini (400, 403, 500...) → 503 avec 'non configuré'
-      // Vieux app : msg.includes('non configuré') = true → "🛠️ service temporairement indisponible"
-      return NextResponse.json({ error: 'Service IA non configuré' }, { status: 503 });
+      // Erreurs Gemini spécifiques → messages différents pour diagnostiquer depuis l'app
+      // 404 = modèle introuvable, 403 = clé API invalide/quota, 400 = requête invalide
+      let errMsg = 'Service IA non configuré'; // vieux app: msg.includes('non configuré') → 🛠️
+      if (geminiStatus === 404) errMsg = 'Service IA non configuré - modèle introuvable 404';
+      else if (geminiStatus === 403) errMsg = 'Service IA non configuré - clé invalide 403';
+      else if (geminiStatus === 400) errMsg = 'Service IA non configuré - requête invalide 400';
+      return NextResponse.json({ error: errMsg }, { status: 503 });
     }
 
     const data = await geminiRes!.json();
