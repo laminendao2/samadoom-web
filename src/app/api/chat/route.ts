@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
       contents,
       generationConfig: {
         maxOutputTokens: 1024,
-        temperature: 0.7,
+        // temperature supprimé : paramètre déprécié dans Gemini 3.6 Flash → causait erreur 400
       },
       safetySettings: [
         { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
