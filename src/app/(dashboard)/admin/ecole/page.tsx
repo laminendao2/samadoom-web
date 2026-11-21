@@ -37,14 +37,35 @@ export default function AdminEcolePage() {
   useEffect(() => {
     if (!profile) return;
     if (!isAdmin) { router.replace('/dashboard'); return; }
-    if (!profile.ecoleId) { setLoading(false); return; }
     loadEcole();
   }, [profile]);
 
   async function loadEcole() {
-    if (!profile?.ecoleId) return;
+    if (!profile?.uid) return;
     setLoading(true);
-    const snap = await getDoc(doc(db, 'ecoles', profile.ecoleId));
+
+    // 1. Chercher via ecoleId sur le profil
+    let snap = profile.ecoleId
+      ? await getDoc(doc(db, 'ecoles', profile.ecoleId))
+      : null;
+
+    // 2. Fallback : chercher dans ecoles où adminUid == uid (SuperAdmin ou admin principal)
+    if (!snap?.exists()) {
+      const q = await getDocs(
+        query(collection(db, 'ecoles'), where('adminUid', '==', profile.uid))
+      );
+      if (!q.empty) snap = q.docs[0] as any;
+    }
+
+    // 3. Fallback : chercher dans ecoles où coAdmins contient uid
+    if (!snap?.exists()) {
+      const q2 = await getDocs(
+        query(collection(db, 'ecoles'), where('coAdmins', 'array-contains', profile.uid))
+      );
+      if (!q2.empty) snap = q2.docs[0] as any;
+    }
+
+    if (!snap?.exists()) { setLoading(false); return; }
     if (!snap.exists()) { setLoading(false); return; }
     const data = { id: snap.id, ...snap.data() } as Ecole;
     setEcole(data);
@@ -109,18 +130,16 @@ export default function AdminEcolePage() {
         <p className="text-gray-500 text-sm mt-1">Paramètres et gestion de l'établissement</p>
       </div>
 
-      {!profile?.ecoleId ? (
-        <div className="bg-orange-50 border border-orange-200 rounded-2xl p-8 text-center">
-          <div className="text-4xl mb-3">⚠️</div>
-          <p className="font-semibold text-orange-800">Vous n'êtes pas lié à une école</p>
-          <p className="text-sm text-orange-600 mt-1">Contactez un Super Administrateur.</p>
-        </div>
-      ) : loading ? (
+      {loading ? (
         <div className="py-20 text-center text-gray-400">
           <div className="text-5xl mb-4 animate-pulse">🏫</div><p>Chargement…</p>
         </div>
       ) : !ecole ? (
-        <div className="py-20 text-center text-gray-400">École introuvable.</div>
+        <div className="bg-orange-50 border border-orange-200 rounded-2xl p-8 text-center">
+          <div className="text-4xl mb-3">⚠️</div>
+          <p className="font-semibold text-orange-800">Vous n&apos;êtes pas lié à une école</p>
+          <p className="text-sm text-orange-600 mt-1">Contactez un Super Administrateur.</p>
+        </div>
       ) : (
         <div className="space-y-6">
           {/* Nom */}
