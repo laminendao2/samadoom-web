@@ -14,7 +14,7 @@ interface Ecole {
   nom: string;
   adminUid: string;
   coAdmins: string[];
-  logoUrl?: string;
+  logoEcole?: string;
 }
 interface UserInfo { uid: string; name: string; email: string; }
 
@@ -98,8 +98,8 @@ export default function AdminEcolePage() {
       const storageRef = ref(storage, `ecoles/${ecole.id}/logo`);
       await uploadBytes(storageRef, file);
       const url = await getDownloadURL(storageRef);
-      await updateDoc(doc(db, 'ecoles', ecole.id), { logoUrl: url });
-      setEcole(e => e ? { ...e, logoUrl: url } : e);
+      await updateDoc(doc(db, 'ecoles', ecole.id), { logoEcole: url });
+      setEcole(e => e ? { ...e, logoEcole: url } : e);
       showToast('✅ Logo mis à jour');
     } catch {
       showToast('❌ Erreur lors de l\'upload');
@@ -164,8 +164,8 @@ export default function AdminEcolePage() {
             {/* Logo */}
             <div className="flex items-center gap-5 mb-5 pb-5 border-b border-gray-50">
               <div className="relative w-20 h-20 rounded-2xl overflow-hidden border border-gray-100 bg-gray-50 flex items-center justify-center flex-shrink-0">
-                {ecole.logoUrl ? (
-                  <Image src={ecole.logoUrl} alt="Logo école" fill className="object-cover" />
+                {ecole.logoEcole ? (
+                  <Image src={ecole.logoEcole} alt="Logo école" fill className="object-cover" />
                 ) : (
                   <span className="text-3xl">🏫</span>
                 )}
@@ -190,7 +190,7 @@ export default function AdminEcolePage() {
                   disabled={uploadingLogo}
                   className="px-4 py-2 bg-gray-100 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-200 transition-colors disabled:opacity-50"
                 >
-                  {uploadingLogo ? 'Upload…' : ecole.logoUrl ? '🔄 Changer le logo' : '📷 Ajouter un logo'}
+                  {uploadingLogo ? 'Upload…' : ecole.logoEcole ? '🔄 Changer le logo' : '📷 Ajouter un logo'}
                 </button>
               </div>
             </div>
