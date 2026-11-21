@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import {
   collection, getDocs, addDoc, serverTimestamp, query, where, Timestamp,
+  updateDoc, deleteDoc, doc,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
@@ -13,6 +14,7 @@ interface Ecole {
   adminUid: string;
   coAdmins?: string[];
   createdAt?: Timestamp;
+  status?: 'active' | 'inactive';
 }
 interface AdminInfo {
   uid: string;
@@ -32,6 +34,8 @@ export default function SuperAdminEcolesPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null); // ecole.id
+  const [actionLoading, setActionLoading] = useState<string | null>(null); // ecole.id
 
   const isSuperAdmin =
     profile?.role === 'superadmin' || (profile?.roles ?? []).includes('superadmin');
@@ -98,6 +102,32 @@ export default function SuperAdminEcolesPage() {
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(''), 3000);
+  }
+
+  async function toggleStatus(ecole: Ecole) {
+    const newStatus = ecole.status === 'inactive' ? 'active' : 'inactive';
+    setActionLoading(ecole.id);
+    try {
+      await updateDoc(doc(db, 'ecoles', ecole.id), { status: newStatus });
+      setEcoles(prev => prev.map(e => e.id === ecole.id ? { ...e, status: newStatus } : e));
+      showToast(newStatus === 'inactive' ? `⏸️ "${ecole.nom}" désactivée` : `✅ "${ecole.nom}" réactivée`);
+    } catch {
+      showToast('❌ Erreur lors de la mise à jour');
+    }
+    setActionLoading(null);
+  }
+
+  async function handleDelete(ecoleId: string, ecoleNom: string) {
+    setActionLoading(ecoleId);
+    try {
+      await deleteDoc(doc(db, 'ecoles', ecoleId));
+      setEcoles(prev => prev.filter(e => e.id !== ecoleId));
+      setConfirmDelete(null);
+      showToast(`🗑️ "${ecoleNom}" supprimée`);
+    } catch {
+      showToast('❌ Erreur lors de la suppression');
+    }
+    setActionLoading(null);
   }
 
   if (!isSuperAdmin) return null;
@@ -173,11 +203,18 @@ export default function SuperAdminEcolesPage() {
               ? ecole.createdAt.toDate().toLocaleDateString('fr-FR')
               : '—';
             return (
-              <div key={ecole.id} className="bg-white rounded-2xl border border-gray-100 p-6 hover:shadow-sm transition-all">
+              <div key={ecole.id} className={`bg-white rounded-2xl border p-6 hover:shadow-sm transition-all ${ecole.status === 'inactive' ? 'border-orange-200 opacity-70' : 'border-gray-100'}`}>
                 <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center text-2xl flex-shrink-0">🏫</div>
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 ${ecole.status === 'inactive' ? 'bg-orange-100' : 'bg-green-100'}`}>
+                    {ecole.status === 'inactive' ? '⏸️' : '🏫'}
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-gray-900 truncate">{ecole.nom}</h3>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-bold text-gray-900 truncate">{ecole.nom}</h3>
+                      {ecole.status === 'inactive' && (
+                        <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full text-xs font-semibold">Désactivée</span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-400 mt-0.5">Créée le {created}</p>
                     {admin && (
                       <p className="text-xs text-gray-600 mt-2">
@@ -192,8 +229,52 @@ export default function SuperAdminEcolesPage() {
                 <div className="mt-4 pt-4 border-t border-gray-50 flex items-center gap-4 text-xs text-gray-500">
                   <span>👥 <strong className="text-gray-700">{count}</strong> membre{count > 1 ? 's' : ''}</span>
                   <span>👤 <strong className="text-gray-700">{ecole.coAdmins?.length || 0}</strong> co-admin{(ecole.coAdmins?.length || 0) > 1 ? 's' : ''}</span>
-                  <span className="ml-auto text-xs font-mono text-gray-300">{ecole.id.slice(0, 8)}…</span>
                 </div>
+                {/* Actions SuperAdmin */}
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => toggleStatus(ecole)}
+                    disabled={actionLoading === ecole.id}
+                    className={`flex-1 py-2 rounded-xl text-xs font-bold transition-colors disabled:opacity-50 ${
+                      ecole.status === 'inactive'
+                        ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                        : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                    }`}
+                  >
+                    {actionLoading === ecole.id ? '…' : ecole.status === 'inactive' ? '▶️ Réactiver' : '⏸️ Désactiver'}
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(ecole.id)}
+                    disabled={actionLoading === ecole.id}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-red-100 text-red-600 hover:bg-red-200 transition-colors disabled:opacity-50"
+                  >
+                    🗑️ Supprimer
+                  </button>
+                </div>
+
+                {/* Confirmation suppression */}
+                {confirmDelete === ecole.id && (
+                  <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-xl">
+                    <p className="text-xs font-semibold text-red-700 mb-2">
+                      ⚠️ Supprimer définitivement &quot;{ecole.nom}&quot; ? Cette action est irréversible.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleDelete(ecole.id, ecole.nom)}
+                        disabled={actionLoading === ecole.id}
+                        className="flex-1 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {actionLoading === ecole.id ? 'Suppression…' : 'Oui, supprimer'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(null)}
+                        className="flex-1 py-1.5 border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                      >
+                        Annuler
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
