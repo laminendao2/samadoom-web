@@ -1,17 +1,20 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   doc, getDoc, updateDoc, collection, query, where, getDocs, arrayRemove, arrayUnion,
 } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '@/lib/firebase';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 interface Ecole {
   id: string;
   nom: string;
   adminUid: string;
   coAdmins: string[];
+  logoUrl?: string;
 }
 interface UserInfo { uid: string; name: string; email: string; }
 
@@ -29,6 +32,8 @@ export default function AdminEcolePage() {
   const [addingCo, setAddingCo] = useState(false);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin =
     profile?.role === 'admin' || profile?.role === 'superadmin' ||
@@ -44,38 +49,28 @@ export default function AdminEcolePage() {
     if (!profile?.uid) return;
     setLoading(true);
 
-    // 1. Chercher via ecoleId sur le profil
     let snap = profile.ecoleId
       ? await getDoc(doc(db, 'ecoles', profile.ecoleId))
       : null;
 
-    // 2. Fallback : chercher dans ecoles où adminUid == uid (SuperAdmin ou admin principal)
     if (!snap?.exists()) {
-      const q = await getDocs(
-        query(collection(db, 'ecoles'), where('adminUid', '==', profile.uid))
-      );
+      const q = await getDocs(query(collection(db, 'ecoles'), where('adminUid', '==', profile.uid)));
       if (!q.empty) snap = q.docs[0] as any;
     }
 
-    // 3. Fallback : chercher dans ecoles où coAdmins contient uid
     if (!snap?.exists()) {
-      const q2 = await getDocs(
-        query(collection(db, 'ecoles'), where('coAdmins', 'array-contains', profile.uid))
-      );
+      const q2 = await getDocs(query(collection(db, 'ecoles'), where('coAdmins', 'array-contains', profile.uid)));
       if (!q2.empty) snap = q2.docs[0] as any;
     }
 
     if (!snap?.exists()) { setLoading(false); return; }
-    if (!snap.exists()) { setLoading(false); return; }
     const data = { id: snap.id, ...snap.data() } as Ecole;
     setEcole(data);
     setEditNom(data.nom);
 
     const uids = [data.adminUid, ...(data.coAdmins || [])].filter(Boolean);
     if (uids.length) {
-      const usersSnap = await getDocs(
-        query(collection(db, 'users'), where('__name__', 'in', uids))
-      );
+      const usersSnap = await getDocs(query(collection(db, 'users'), where('__name__', 'in', uids)));
       const map: Record<string, UserInfo> = {};
       usersSnap.docs.forEach(d => { map[d.id] = { uid: d.id, ...d.data() } as UserInfo; });
       setAdminInfo(map[data.adminUid] || null);
@@ -92,6 +87,25 @@ export default function AdminEcolePage() {
     setEditing(false);
     setSaving(false);
     showToast('✅ Nom mis à jour');
+  }
+
+  async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !ecole) return;
+    if (file.size > 2 * 1024 * 1024) { showToast('❌ Image trop lourde (max 2 Mo)'); return; }
+    setUploadingLogo(true);
+    try {
+      const storageRef = ref(storage, `ecoles/${ecole.id}/logo`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      await updateDoc(doc(db, 'ecoles', ecole.id), { logoUrl: url });
+      setEcole(e => e ? { ...e, logoUrl: url } : e);
+      showToast('✅ Logo mis à jour');
+    } catch {
+      showToast('❌ Erreur lors de l\'upload');
+    }
+    setUploadingLogo(false);
+    if (logoInputRef.current) logoInputRef.current.value = '';
   }
 
   async function addCoAdmin() {
@@ -127,7 +141,7 @@ export default function AdminEcolePage() {
     <div className="p-8 max-w-3xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-black text-gray-900">Mon école</h1>
-        <p className="text-gray-500 text-sm mt-1">Paramètres et gestion de l'établissement</p>
+        <p className="text-gray-500 text-sm mt-1">Paramètres et gestion de l&apos;établissement</p>
       </div>
 
       {loading ? (
@@ -142,9 +156,46 @@ export default function AdminEcolePage() {
         </div>
       ) : (
         <div className="space-y-6">
-          {/* Nom */}
+
+          {/* Logo + Infos générales */}
           <div className="bg-white rounded-2xl border border-gray-100 p-6">
-            <h2 className="font-bold text-gray-900 mb-4 flex items-center gap-2">🏫 Informations générales</h2>
+            <h2 className="font-bold text-gray-900 mb-5 flex items-center gap-2">🏫 Informations générales</h2>
+
+            {/* Logo */}
+            <div className="flex items-center gap-5 mb-5 pb-5 border-b border-gray-50">
+              <div className="relative w-20 h-20 rounded-2xl overflow-hidden border border-gray-100 bg-gray-50 flex items-center justify-center flex-shrink-0">
+                {ecole.logoUrl ? (
+                  <Image src={ecole.logoUrl} alt="Logo école" fill className="object-cover" />
+                ) : (
+                  <span className="text-3xl">🏫</span>
+                )}
+                {uploadingLogo && (
+                  <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
+                    <div className="w-5 h-5 border-2 border-green-600 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-800 mb-1">Logo de l&apos;école</p>
+                <p className="text-xs text-gray-400 mb-3">JPG, PNG ou WebP · Max 2 Mo</p>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleLogoChange}
+                />
+                <button
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={uploadingLogo}
+                  className="px-4 py-2 bg-gray-100 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-200 transition-colors disabled:opacity-50"
+                >
+                  {uploadingLogo ? 'Upload…' : ecole.logoUrl ? '🔄 Changer le logo' : '📷 Ajouter un logo'}
+                </button>
+              </div>
+            </div>
+
+            {/* Nom */}
             <div className="flex items-center gap-3">
               {editing ? (
                 <>
@@ -163,7 +214,7 @@ export default function AdminEcolePage() {
               ) : (
                 <>
                   <div className="flex-1">
-                    <p className="text-xs text-gray-400 mb-0.5">Nom de l'école</p>
+                    <p className="text-xs text-gray-400 mb-0.5">Nom de l&apos;école</p>
                     <p className="font-bold text-gray-900 text-lg">{ecole.nom}</p>
                   </div>
                   <button onClick={() => setEditing(true)}
@@ -173,6 +224,7 @@ export default function AdminEcolePage() {
                 </>
               )}
             </div>
+
             {adminInfo && (
               <div className="mt-4 pt-4 border-t border-gray-50">
                 <p className="text-xs text-gray-400 mb-1">Admin principal</p>
@@ -193,7 +245,7 @@ export default function AdminEcolePage() {
           <div className="bg-white rounded-2xl border border-gray-100 p-6">
             <h2 className="font-bold text-gray-900 mb-4">👥 Co-administrateurs</h2>
             {coAdminInfos.length === 0 ? (
-              <p className="text-sm text-gray-400 mb-4">Aucun co-admin pour l'instant</p>
+              <p className="text-sm text-gray-400 mb-4">Aucun co-admin pour l&apos;instant</p>
             ) : (
               <div className="space-y-3 mb-4">
                 {coAdminInfos.map(co => (
@@ -215,9 +267,7 @@ export default function AdminEcolePage() {
             )}
             <div className="border-t border-gray-50 pt-4">
               <p className="text-xs font-semibold text-gray-600 mb-2">Ajouter un co-admin par email</p>
-              {error && (
-                <p className="text-xs text-red-500 mb-2">{error}</p>
-              )}
+              {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
               <div className="flex gap-2">
                 <input value={addEmail} onChange={e => setAddEmail(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && addCoAdmin()}
@@ -234,7 +284,7 @@ export default function AdminEcolePage() {
 
           {/* ID */}
           <div className="bg-gray-50 rounded-2xl border border-gray-100 p-4">
-            <p className="text-xs text-gray-400 mb-1">ID de l'école (référence interne)</p>
+            <p className="text-xs text-gray-400 mb-1">ID de l&apos;école (référence interne)</p>
             <p className="font-mono text-xs text-gray-600 break-all">{ecole.id}</p>
           </div>
         </div>
