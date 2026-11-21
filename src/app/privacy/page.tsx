@@ -56,13 +56,24 @@ export default function PrivacyPage() {
       </ul>
       <p>Pour exercer ces droits, contactez-nous à : <strong>support@freejobla.com</strong></p>
 
-      <h2>7. Sécurité</h2>
+      <h2>7. Intelligence artificielle</h2>
+      <p>
+        Sama Doom intègre un assistant intelligent (« Sama ») propulsé par un service d&apos;IA tiers.
+        Lorsque vous interagissez avec cet assistant, vos messages sont transmis à ce service
+        pour générer une réponse. Ces échanges ne sont pas utilisés pour entraîner des modèles
+        d&apos;IA et ne sont pas conservés par le fournisseur au-delà du traitement immédiat de la requête.
+        Aucune donnée personnelle identifiable n&apos;est partagée avec le service d&apos;IA en dehors du
+        contenu du message que vous envoyez volontairement. L&apos;assistant est conçu uniquement
+        pour répondre aux questions relatives à l&apos;Islam et à l&apos;utilisation de l&apos;application.
+      </p>
+
+      <h2>8. Sécurité</h2>
       <p>
         Nous mettons en œuvre des mesures techniques et organisationnelles appropriées pour
         protéger vos données contre tout accès non autorisé, perte ou divulgation.
       </p>
 
-      <h2>8. Contact</h2>
+      <h2>9. Contact</h2>
       <p>
         Pour toute question relative à cette politique de confidentialité :<br />
         <strong>Email :</strong> support@freejobla.com<br />
