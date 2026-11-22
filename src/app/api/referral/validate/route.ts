@@ -5,13 +5,10 @@ import { adminDb } from '@/lib/firebase-admin';
  * GET /api/referral/validate?code=CHEIKH4821&userId=xxx
  *
  * Valide un code de parrainage.
- * - Vérifie que le code existe (toute personne inscrite peut partager un code)
+ * - Vérifie que le code existe
  * - Vérifie que l'utilisateur n'utilise pas son propre code
- * Retourne: { valid, discountPercent, referrerName }
- *
- * Note : on ne requiert PAS que le parrain soit Pro pour accepter son code.
- * Le code est valide dès qu'il est généré. La commission est créditée quand
- * quelqu'un s'abonne via ce code, que le parrain soit Pro ou non.
+ * - Vérifie que l'utilisateur n'essaie pas de changer son parrain existant
+ * Retourne: { valid, discountPercent, referrerName, ownerId }
  */
 export async function GET(req: NextRequest) {
   try {
@@ -28,7 +25,7 @@ export async function GET(req: NextRequest) {
     if (!snap.exists) {
       return NextResponse.json({
         valid: false,
-        error: 'Code introuvable. Votre ami doit d\'abord activer son code sur samadoom.com/referral',
+        error: "Code introuvable. Votre ami doit d'abord activer son code sur samadoom.com/referral",
       });
     }
 
@@ -36,7 +33,19 @@ export async function GET(req: NextRequest) {
 
     // Bloquer l'auto-parrainage
     if (userId && referral.userId === userId) {
-      return NextResponse.json({ valid: false, error: 'Vous ne pouvez pas utiliser votre propre code' });
+      return NextResponse.json({ valid: false, error: 'Vous ne pouvez pas utiliser votre propre code de parrainage' });
+    }
+
+    // Bloquer le changement de parrain : si l'utilisateur a déjà un savedReferralCode, il ne peut pas en utiliser un autre
+    if (userId) {
+      const userSnap = await adminDb.collection('users').doc(userId).get();
+      const savedCode = userSnap.data()?.savedReferralCode as string | undefined;
+      if (savedCode && savedCode !== code) {
+        return NextResponse.json({
+          valid: false,
+          error: 'Vous avez déjà un parrain enregistré. Contactez le support pour tout changement.',
+        });
+      }
     }
 
     return NextResponse.json({
@@ -44,6 +53,7 @@ export async function GET(req: NextRequest) {
       discountPercent: 5,
       referrerName: referral.userName,
       code: referral.code,
+      ownerId: referral.userId, // permet au client de bloquer l'auto-parrainage si userId manquait
     });
   } catch (err) {
     console.error('Referral validate error:', err);

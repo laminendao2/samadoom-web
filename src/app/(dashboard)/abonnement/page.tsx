@@ -72,6 +72,8 @@ function AbonnementContent() {
   const [error, setError] = useState('');
   const [referralCode, setReferralCode] = useState('');
   const [referralInfo, setReferralInfo] = useState<ReferralInfo | null>(null);
+  // Code parrain verrouillé : si l'utilisateur a déjà un savedReferralCode, il ne peut plus le changer
+  const lockedReferralCode = (profile as { savedReferralCode?: string } | null)?.savedReferralCode?.toUpperCase() ?? null;
   const [referralError, setReferralError] = useState('');
   const [referralLoading, setReferralLoading] = useState(false);
   const [cancelConfirm, setCancelConfirm] = useState(false);
@@ -123,6 +125,12 @@ function AbonnementContent() {
       const res = await fetch(`/api/referral/validate?code=${code.trim()}${userId}`);
       const data = await res.json();
       if (data.valid) {
+        // Double-check côté client : bloquer l'auto-parrainage même si userId manquait au moment de la requête
+        if (user?.uid && data.ownerId && data.ownerId === user.uid) {
+          setReferralInfo(null);
+          setReferralError('Vous ne pouvez pas utiliser votre propre code de parrainage');
+          return null;
+        }
         const info = { ...data, code: data.code ?? code.trim().toUpperCase() } as ReferralInfo;
         setReferralInfo(info);
         setReferralError('');
@@ -369,7 +377,8 @@ function AbonnementContent() {
             type="text"
             placeholder="ex: CHEIKH4821"
             value={referralCode}
-            onChange={e => setReferralCode(e.target.value.toUpperCase())}
+            onChange={e => !lockedReferralCode && setReferralCode(e.target.value.toUpperCase())}
+            readOnly={!!lockedReferralCode}
             style={{
               flex: 1,
               padding: '10px 14px',
@@ -381,11 +390,13 @@ function AbonnementContent() {
               outline: 'none',
               fontFamily: 'monospace',
               textTransform: 'uppercase',
+              background: lockedReferralCode ? '#f3f4f6' : undefined,
+              cursor: lockedReferralCode ? 'not-allowed' : undefined,
             }}
           />
           <button
-            onClick={() => validateCode(referralCode)}
-            disabled={referralLoading || !referralCode.trim()}
+            onClick={() => !lockedReferralCode && validateCode(referralCode)}
+            disabled={referralLoading || !referralCode.trim() || !!lockedReferralCode}
             style={{
               padding: '10px 20px',
               background: '#166534',
@@ -394,8 +405,8 @@ function AbonnementContent() {
               borderRadius: 10,
               fontWeight: 700,
               fontSize: 14,
-              cursor: referralLoading || !referralCode.trim() ? 'not-allowed' : 'pointer',
-              opacity: referralLoading || !referralCode.trim() ? 0.6 : 1,
+              cursor: referralLoading || !referralCode.trim() || !!lockedReferralCode ? 'not-allowed' : 'pointer',
+              opacity: referralLoading || !referralCode.trim() || !!lockedReferralCode ? 0.6 : 1,
             }}>
             {referralLoading ? '…' : 'Appliquer'}
           </button>
@@ -406,6 +417,7 @@ function AbonnementContent() {
             <span style={{ fontSize: 18 }}>✅</span>
             <p style={{ fontSize: 13, color: '#166534', fontWeight: 600, margin: 0 }}>
               Code de <strong>{referralInfo.referrerName}</strong> — {referralInfo.discountPercent}% de réduction appliquée !
+              {lockedReferralCode && <span style={{ fontWeight: 400, color: '#6b7280' }}> (parrain enregistré, non modifiable)</span>}
             </p>
           </div>
         )}
