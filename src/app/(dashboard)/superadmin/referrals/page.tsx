@@ -90,6 +90,8 @@ export default function SuperAdminReferralsPage() {
   const [missingResult, setMissingResult] = useState<MissingResult | null>(null);
   const [fixLoading, setFixLoading] = useState(false);
   const [fixResult, setFixResult] = useState<{ earningsFixed: number; codesUpdated: number } | null>(null);
+  const [revertLoading, setRevertLoading] = useState(false);
+  const [revertResult, setRevertResult] = useState<{ earningsReverted: number; codesRecalculated: number } | null>(null);
 
   // Paramètres commissions par niveau
   type LvlSettings = { enabled: boolean; requiresPro: boolean; rate: number };
@@ -179,6 +181,27 @@ export default function SuperAdminReferralsPage() {
       setFixResult({ earningsFixed: -1, codesUpdated: -1 });
     } finally {
       setFixLoading(false);
+    }
+  }
+
+  async function revertCorruption() {
+    if (!user) return;
+    if (!window.confirm('Corriger les commissions corrompues par le bouton Stripe→FCFA ?\n\nLes montants FCFA mal convertis (ex: 1500→7920) seront restaurés.\nCette action est sûre et réversible.')) return;
+    setRevertLoading(true);
+    setRevertResult(null);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/admin/revert-earnings-corruption', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      setRevertResult({ earningsReverted: data.earningsReverted, codesRecalculated: data.codesRecalculated });
+      await loadData();
+    } catch {
+      setRevertResult({ earningsReverted: -1, codesRecalculated: -1 });
+    } finally {
+      setRevertLoading(false);
     }
   }
 
@@ -346,6 +369,13 @@ export default function SuperAdminReferralsPage() {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {revertResult && (
+            <span style={{ fontSize: 12, color: '#374151', background: revertResult.earningsReverted === -1 ? '#fef2f2' : '#f0fdf4', border: `1px solid ${revertResult.earningsReverted === -1 ? '#fecaca' : '#bbf7d0'}`, padding: '6px 12px', borderRadius: 8 }}>
+              {revertResult.earningsReverted === -1
+                ? '❌ Erreur lors de la correction'
+                : `✅ ${revertResult.earningsReverted} gains restaurés · ${revertResult.codesRecalculated} balances recalculées`}
+            </span>
+          )}
           {fixResult && (
             <span style={{ fontSize: 12, color: '#374151', background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '6px 12px', borderRadius: 8 }}>
               {fixResult.earningsFixed === -1
@@ -353,6 +383,17 @@ export default function SuperAdminReferralsPage() {
                 : `✅ ${fixResult.earningsFixed} gains corrigés · ${fixResult.codesUpdated} balances recalculées`}
             </span>
           )}
+          <button
+            onClick={revertCorruption}
+            disabled={revertLoading}
+            style={{
+              fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 10,
+              background: revertLoading ? '#e5e7eb' : '#dc2626', color: revertLoading ? '#9ca3af' : 'white',
+              border: 'none', cursor: revertLoading ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            {revertLoading ? '⏳ Correction…' : '🚨 Corriger corruption FCFA'}
+          </button>
           <button
             onClick={fixBalances}
             disabled={fixLoading}

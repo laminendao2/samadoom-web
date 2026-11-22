@@ -44,12 +44,14 @@ export async function POST(req: NextRequest) {
     const currency = (d.currency ?? 'XOF').toUpperCase();
     const provider  = d.provider ?? 'paydunya';
 
-    // Identifier les earnings en centimes (Stripe — USD ou EUR, ancien ou nouveau format)
+    // Identifier les earnings en centimes (Stripe — USD ou EUR uniquement).
+    // ⚠️ NE PAS utiliser amountPaidOriginal !== undefined : les earnings PayDunya FCFA
+    //    ont aussi ce champ (montant original = montant payé en XOF), et les traiter comme
+    //    des centimes USD les corrompt (ex : 1500 XOF → 7920 XOF).
     const isStripeCents =
       currency === 'USD' ||
       currency === 'EUR' ||
-      provider === 'stripe' ||
-      d.amountPaidOriginal !== undefined;
+      provider === 'stripe';
 
     if (!isStripeCents) continue; // déjà en XOF (PayDunya), rien à faire
 
