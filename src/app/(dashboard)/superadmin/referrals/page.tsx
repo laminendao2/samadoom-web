@@ -92,6 +92,28 @@ export default function SuperAdminReferralsPage() {
   const [fixResult, setFixResult] = useState<{ earningsFixed: number; codesUpdated: number } | null>(null);
   const [revertLoading, setRevertLoading] = useState(false);
   const [revertResult, setRevertResult] = useState<{ earningsReverted: number; codesRecalculated: number } | null>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ updated: number; changes: { code: string; oldCount: number; newCount: number }[] } | null>(null);
+
+  async function syncUsageCounts() {
+    if (!user) return;
+    setSyncLoading(true);
+    setSyncResult(null);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/admin/sync-usage-counts', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      setSyncResult({ updated: data.updated ?? 0, changes: data.changes ?? [] });
+      await loadData();
+    } catch {
+      setSyncResult({ updated: -1, changes: [] });
+    } finally {
+      setSyncLoading(false);
+    }
+  }
 
   // Paramètres commissions par niveau
   type LvlSettings = { enabled: boolean; requiresPro: boolean; rate: number };
@@ -413,6 +435,15 @@ export default function SuperAdminReferralsPage() {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {syncResult && (
+            <span style={{ fontSize: 12, color: '#374151', background: syncResult.updated === -1 ? '#fef2f2' : '#eff6ff', border: `1px solid ${syncResult.updated === -1 ? '#fecaca' : '#bfdbfe'}`, padding: '6px 12px', borderRadius: 8 }}>
+              {syncResult.updated === -1
+                ? '❌ Erreur sync'
+                : syncResult.updated === 0
+                  ? '✅ Compteurs déjà corrects'
+                  : `✅ ${syncResult.updated} compteur(s) corrigé(s) : ${syncResult.changes.map(c => `${c.code} ${c.oldCount}→${c.newCount}`).join(', ')}`}
+            </span>
+          )}
           {revertResult && (
             <span style={{ fontSize: 12, color: '#374151', background: revertResult.earningsReverted === -1 ? '#fef2f2' : '#f0fdf4', border: `1px solid ${revertResult.earningsReverted === -1 ? '#fecaca' : '#bbf7d0'}`, padding: '6px 12px', borderRadius: 8 }}>
               {revertResult.earningsReverted === -1
@@ -427,6 +458,17 @@ export default function SuperAdminReferralsPage() {
                 : `✅ ${fixResult.earningsFixed} gains corrigés · ${fixResult.codesUpdated} balances recalculées`}
             </span>
           )}
+          <button
+            onClick={syncUsageCounts}
+            disabled={syncLoading}
+            style={{
+              fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 10,
+              background: syncLoading ? '#e5e7eb' : '#0891b2', color: syncLoading ? '#9ca3af' : 'white',
+              border: 'none', cursor: syncLoading ? 'not-allowed' : 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            {syncLoading ? '⏳ Sync…' : '🔄 Sync compteurs filleuls'}
+          </button>
           <button
             onClick={revertCorruption}
             disabled={revertLoading}
