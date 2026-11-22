@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
   const byCode: Record<string, { totalEarned: number; usageCount: number }> = {};
   for (const doc of allEarningsSnap.docs) {
     const d = doc.data();
-    const code = d.referralCode as string;
+    const code = (d.referralCode ?? d.referrerCode) as string;
     if (!code) continue;
     if (!byCode[code]) byCode[code] = { totalEarned: 0, usageCount: 0 };
     // Après correction, utiliser le bon montant
