@@ -118,9 +118,10 @@ export type FinalizeResult =
 
 /**
  * Marque un paiement comme payé et active l'abonnement — une seule fois.
- * Tout se passe dans une transaction : deux notifications simultanées (webhook +
- * page de succès, ou un webhook rejoué) ne peuvent ni activer deux fois ni
- * créditer deux commissions.
+ *
+ * IMPORTANT : tous les tx.get() (reads) sont exécutés AVANT tout tx.set()/tx.update() (writes).
+ * Le SDK Admin Firestore Node.js interdit les reads après writes dans une même transaction.
+ *
  * À n'appeler qu'APRÈS avoir prouvé le paiement auprès du prestataire.
  */
 export async function finalizePaidPayment(
@@ -129,34 +130,125 @@ export async function finalizePaidPayment(
 ): Promise<FinalizeResult> {
   const paymentRef = adminDb.collection('payments').doc(paymentId);
 
+  // Normalisation devise AVANT la transaction (stripeCentsToXof fait un appel réseau)
+  // On lit d'abord le payment doc pour connaître la devise, sans transaction.
+  const paymentSnap0 = await paymentRef.get();
+  if (!paymentSnap0.exists) return { result: 'not_found' };
+  const paymentData0 = paymentSnap0.data()!;
+  if (paymentData0.status === 'completed') return { result: 'already' };
+
+  const paymentCurrency = (paymentData0.currency ?? 'XOF').toUpperCase();
+  const amountInXof: number = (paymentCurrency === 'USD' || paymentCurrency === 'EUR')
+    ? await stripeCentsToXof(paymentData0.amount, paymentCurrency.toLowerCase() as 'usd' | 'eur')
+    : Number(paymentData0.amount);
+
   return adminDb.runTransaction(async (tx) => {
+    // ════════════════════════════════════════════════════════
+    // PHASE 1 — READS UNIQUEMENT (aucun write avant la fin)
+    // ════════════════════════════════════════════════════════
+
     const paymentSnap = await tx.get(paymentRef);
     if (!paymentSnap.exists) return { result: 'not_found' as const };
-    const payment = paymentSnap.data()!;
+    const payment = { ...paymentSnap.data()! }; // copie mutable
     if (payment.status === 'completed') return { result: 'already' as const };
 
     const userRef = adminDb.collection('users').doc(payment.userId);
     const userSnap = await tx.get(userRef);
 
     // Auto-lookup du code de parrainage sauvegardé si le paiement n'en a pas
+    const codeSnapCache = new Map<string, FirebaseFirestore.DocumentSnapshot>();
+
     if (!payment.referralCode) {
       const savedCode = userSnap.data()?.savedReferralCode as string | undefined;
       if (savedCode) {
-        const codeSnap = await tx.get(adminDb.collection('referralCodes').doc(savedCode));
-        if (codeSnap.exists && codeSnap.data()?.userId !== payment.userId) {
+        const snap = await tx.get(adminDb.collection('referralCodes').doc(savedCode));
+        codeSnapCache.set(savedCode, snap);
+        if (snap.exists && snap.data()?.userId !== payment.userId) {
           payment.referralCode = savedCode;
-          payment.referrerId = codeSnap.data()!.userId;
+          payment.referrerId = snap.data()!.userId;
+        }
+      }
+    } else if (!codeSnapCache.has(payment.referralCode)) {
+      const snap = await tx.get(adminDb.collection('referralCodes').doc(payment.referralCode));
+      codeSnapCache.set(payment.referralCode, snap);
+    }
+
+    // Construire la chaîne de parrainage (niveaux 1-3) — reads uniquement
+    type ChainEntry = { code: string; referrerId: string };
+    const chain: ChainEntry[] = [];
+
+    if (payment.referralCode && payment.referrerId
+        && payment.referrerId !== payment.userId) {
+
+      chain.push({ code: payment.referralCode, referrerId: payment.referrerId });
+
+      // Niveau 2
+      const l1UserSnap = await tx.get(adminDb.collection('users').doc(payment.referrerId));
+      const l1SavedCode = l1UserSnap.data()?.savedReferralCode as string | undefined;
+      if (l1SavedCode && l1SavedCode !== payment.referralCode) {
+        if (!codeSnapCache.has(l1SavedCode)) {
+          const snap = await tx.get(adminDb.collection('referralCodes').doc(l1SavedCode));
+          codeSnapCache.set(l1SavedCode, snap);
+        }
+        const l1CodeSnap = codeSnapCache.get(l1SavedCode)!;
+        if (l1CodeSnap.exists
+            && l1CodeSnap.data()?.userId !== payment.userId
+            && l1CodeSnap.data()?.userId !== payment.referrerId) {
+          const l2UserId = l1CodeSnap.data()!.userId as string;
+          chain.push({ code: l1SavedCode, referrerId: l2UserId });
+
+          // Niveau 3
+          const l2UserSnap = await tx.get(adminDb.collection('users').doc(l2UserId));
+          const l2SavedCode = l2UserSnap.data()?.savedReferralCode as string | undefined;
+          if (l2SavedCode
+              && l2SavedCode !== payment.referralCode
+              && l2SavedCode !== l1SavedCode) {
+            if (!codeSnapCache.has(l2SavedCode)) {
+              const snap = await tx.get(adminDb.collection('referralCodes').doc(l2SavedCode));
+              codeSnapCache.set(l2SavedCode, snap);
+            }
+            const l2CodeSnap = codeSnapCache.get(l2SavedCode)!;
+            if (l2CodeSnap.exists
+                && l2CodeSnap.data()?.userId !== payment.userId
+                && l2CodeSnap.data()?.userId !== payment.referrerId
+                && l2CodeSnap.data()?.userId !== l2UserId) {
+              chain.push({ code: l2SavedCode, referrerId: l2CodeSnap.data()!.userId });
+            }
+          }
         }
       }
     }
 
+    // Config niveaux
+    const configSnap = await tx.get(adminDb.collection('config').doc('referralSettings'));
+    const configLevels = (configSnap.data()?.levels ?? []) as Array<{
+      enabled?: boolean; requiresPro?: boolean; rate?: number;
+    }>;
+
+    // Lire les docs users parrains si requiresPro (avant les writes)
+    const referrerSnapCache = new Map<string, FirebaseFirestore.DocumentSnapshot>();
+    for (let i = 0; i < chain.length && i < REFERRAL_RATES.length; i++) {
+      const lvlConfig = configLevels[i];
+      if (lvlConfig?.requiresPro && !referrerSnapCache.has(chain[i].referrerId)) {
+        const snap = await tx.get(adminDb.collection('users').doc(chain[i].referrerId));
+        referrerSnapCache.set(chain[i].referrerId, snap);
+      }
+    }
+
+    // ════════════════════════════════════════════════════════
+    // PHASE 2 — CALCULS
+    // ════════════════════════════════════════════════════════
+
     const now = new Date();
     const nowIso = now.toISOString();
 
-    // Un renouvellement anticipé s'ajoute au temps restant au lieu de l'écraser
     const accessEnd = currentAccessEnd(userSnap.data());
     const base = accessEnd && accessEnd > now ? accessEnd : now;
     const expiresAt = computePlanExpiry(payment.plan, base);
+
+    // ════════════════════════════════════════════════════════
+    // PHASE 3 — WRITES UNIQUEMENT (aucun read après ce point)
+    // ════════════════════════════════════════════════════════
 
     tx.update(paymentRef, {
       ...extraPaymentFields,
@@ -174,106 +266,52 @@ export async function finalizePaidPayment(
       lastPaymentProvider: payment.provider ?? 'paydunya',
       cancelAtPeriodEnd: false,
     };
-    // Ne pas écraser le savedReferralCode existant — seul un SuperAdmin peut le changer
     const existingSavedCode = userSnap.data()?.savedReferralCode as string | undefined;
     if (payment.referralCode && !existingSavedCode) userUpdate.savedReferralCode = payment.referralCode;
     tx.set(userRef, userUpdate, { merge: true });
 
-    // ── Commissions multi-niveaux (web uniquement : PayDunya / Stripe) ──────
-    // Niveau 1 = parrain direct (10%), Niveau 2 = parrain du parrain (3,5%),
-    // Niveau 3 = arrière-parrain (1,5%). Aucune condition d'abonnement pour l'instant.
-    if (payment.referralCode && payment.referrerId
-        && payment.referrerId !== payment.userId) {
+    // Commissions multi-niveaux
+    for (let i = 0; i < chain.length && i < REFERRAL_RATES.length; i++) {
+      const { code, referrerId } = chain[i];
+      const rate = REFERRAL_RATES[i];
+      const commission = Math.round(amountInXof * rate);
+      const level = i + 1;
 
-      // Normaliser le montant en FCFA (Stripe stocke en centimes USD)
-      const paymentCurrency = (payment.currency ?? 'XOF').toUpperCase();
-      const amountInXof = (paymentCurrency === 'USD' || paymentCurrency === 'EUR')
-        ? await stripeCentsToXof(payment.amount, paymentCurrency.toLowerCase() as 'usd' | 'eur')
-        : payment.amount;
+      const lvlConfig = configLevels[i];
+      if (lvlConfig?.enabled === false) continue;
 
-      // Construire la chaîne de parrainage : [(code, referrerId), niveau2, niveau3]
-      type ChainEntry = { code: string; referrerId: string };
-      const chain: ChainEntry[] = [{ code: payment.referralCode, referrerId: payment.referrerId }];
-
-      // Niveau 2 : parrain du parrain
-      const l1UserSnap = await tx.get(adminDb.collection('users').doc(payment.referrerId));
-      const l1SavedCode = l1UserSnap.data()?.savedReferralCode as string | undefined;
-      if (l1SavedCode && l1SavedCode !== payment.referralCode) {
-        const l1CodeSnap = await tx.get(adminDb.collection('referralCodes').doc(l1SavedCode));
-        if (l1CodeSnap.exists
-            && l1CodeSnap.data()?.userId !== payment.userId
-            && l1CodeSnap.data()?.userId !== payment.referrerId) {
-          chain.push({ code: l1SavedCode, referrerId: l1CodeSnap.data()!.userId });
-
-          // Niveau 3 : parrain du parrain du parrain
-          const l2UserId = l1CodeSnap.data()!.userId as string;
-          const l2UserSnap = await tx.get(adminDb.collection('users').doc(l2UserId));
-          const l2SavedCode = l2UserSnap.data()?.savedReferralCode as string | undefined;
-          if (l2SavedCode
-              && l2SavedCode !== payment.referralCode
-              && l2SavedCode !== l1SavedCode) {
-            const l2CodeSnap = await tx.get(adminDb.collection('referralCodes').doc(l2SavedCode));
-            if (l2CodeSnap.exists
-                && l2CodeSnap.data()?.userId !== payment.userId
-                && l2CodeSnap.data()?.userId !== payment.referrerId
-                && l2CodeSnap.data()?.userId !== l2UserId) {
-              chain.push({ code: l2SavedCode, referrerId: l2CodeSnap.data()!.userId });
-            }
-          }
-        }
+      if (lvlConfig?.requiresPro) {
+        const referrerSnap = referrerSnapCache.get(referrerId);
+        if (!referrerSnap || !isUserPro(referrerSnap.data(), now)) continue;
       }
 
-      // Lire la config des conditions par niveau (si absente → valeurs par défaut)
-      const configSnap = await tx.get(adminDb.collection('config').doc('referralSettings'));
-      const configLevels = (configSnap.data()?.levels ?? []) as Array<{
-        enabled?: boolean; requiresPro?: boolean; rate?: number;
-      }>;
+      tx.set(adminDb.collection('referralEarnings').doc(`pay_${paymentId}_l${level}`), {
+        level,
+        referrerId,
+        referredId: payment.userId,
+        referredEmail: payment.userEmail ?? '',
+        referralCode: code,
+        plan: payment.plan,
+        amountPaid: amountInXof,
+        amountPaidOriginal: payment.amount,
+        commission,
+        rate,
+        currency: 'XOF',
+        provider: payment.provider ?? 'paydunya',
+        paymentToken: paymentId,
+        status: 'confirmed',
+        createdAt: nowIso,
+      });
 
-      // Créditer chaque niveau (idempotent : doc ID déterministe par paiement + niveau)
-      for (let i = 0; i < chain.length && i < REFERRAL_RATES.length; i++) {
-        const { code, referrerId } = chain[i];
-        const rate = REFERRAL_RATES[i];
-        const commission = Math.round(amountInXof * rate);
-        const level = i + 1;
-
-        // Vérifier les conditions configurées pour ce niveau
-        const lvlConfig = configLevels[i];
-        if (lvlConfig?.enabled === false) continue; // niveau désactivé
-
-        if (lvlConfig?.requiresPro) {
-          // Vérifier que le parrain de ce niveau est Pro
-          const referrerUserSnap = await tx.get(adminDb.collection('users').doc(referrerId));
-          if (!isUserPro(referrerUserSnap.data(), now)) continue;
-        }
-
-        tx.set(adminDb.collection('referralEarnings').doc(`pay_${paymentId}_l${level}`), {
-          level,
-          referrerId,
-          referredId: payment.userId,
-          referredEmail: payment.userEmail ?? '',
-          referralCode: code,
-          plan: payment.plan,
-          amountPaid: amountInXof,
-          amountPaidOriginal: payment.amount,
-          commission,
-          rate,
-          currency: 'XOF',
-          provider: payment.provider ?? 'paydunya',
-          paymentToken: paymentId,
-          status: 'confirmed',
-          createdAt: nowIso,
+      const codeRef = adminDb.collection('referralCodes').doc(code);
+      const codeSnap = codeSnapCache.get(code);
+      if (codeSnap?.exists && codeSnap.data()?.userId === referrerId) {
+        const codeData = codeSnap.data()!;
+        tx.update(codeRef, {
+          balance: (codeData.balance ?? 0) + commission,
+          totalEarned: (codeData.totalEarned ?? 0) + commission,
+          ...(level === 1 ? { usageCount: (codeData.usageCount ?? 0) + 1 } : {}),
         });
-
-        const codeRef = adminDb.collection('referralCodes').doc(code);
-        const codeSnap = await tx.get(codeRef);
-        if (codeSnap.exists && codeSnap.data()?.userId === referrerId) {
-          const codeData = codeSnap.data()!;
-          tx.update(codeRef, {
-            balance: (codeData.balance ?? 0) + commission,
-            totalEarned: (codeData.totalEarned ?? 0) + commission,
-            ...(level === 1 ? { usageCount: (codeData.usageCount ?? 0) + 1 } : {}),
-          });
-        }
       }
     }
 
@@ -329,9 +367,6 @@ export async function activatePaydunyaPayment(token: string): Promise<PaydunyaAc
   }
 
   // La facture confirmée doit être la nôtre et en mode réel.
-  // total_amount : d'abord dans invoice{}, puis à la racine (formats PayDunya variables).
-  // On accepte une tolérance de 10% pour absorber les frais de passerelle et les
-  // éventuelles différences de format (montant brut vs net).
   const rawAmount = invoice.total_amount ?? confirm.total_amount;
   const paidAmount = Math.round(Number(rawAmount));
   const liveExpected = process.env.PAYDUNYA_MODE === 'live';
@@ -344,12 +379,17 @@ export async function activatePaydunyaPayment(token: string): Promise<PaydunyaAc
     return { result: 'mismatch' };
   }
 
-  const done = await finalizePaidPayment(token, {
-    paidAmount,
-    receiptUrl: typeof confirm.receipt_url === 'string' ? confirm.receipt_url : null,
-  });
-  if (done.result === 'activated') {
-    console.log(`✅ Plan ${payment.plan} activé pour ${payment.userId} (jusqu'au ${done.expiresAt.toISOString()})`);
+  try {
+    const done = await finalizePaidPayment(token, {
+      paidAmount,
+      receiptUrl: typeof confirm.receipt_url === 'string' ? confirm.receipt_url : null,
+    });
+    if (done.result === 'activated') {
+      console.log(`✅ Plan ${payment.plan} activé pour ${payment.userId} (jusqu'au ${done.expiresAt.toISOString()})`);
+    }
+    return done;
+  } catch (err) {
+    console.error(`❌ finalizePaidPayment failed for token=${token} userId=${payment.userId} plan=${payment.plan} amount=${payment.amount}:`, err);
+    throw err; // re-throw pour que verify-and-activate logge le 500
   }
-  return done;
 }
