@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
     const correctedFix = fixes.find(f => f.id === doc.id);
     const commission = correctedFix ? correctedFix.correctCommission : (d.commission ?? 0);
     byCode[code].totalEarned += commission;
-    byCode[code].usageCount += 1;
+    if (d.type !== 'gift') byCode[code].usageCount += 1; // ne compter que les vraies commissions
   }
 
   const codesSnap = await adminDb.collection('referralCodes').get();

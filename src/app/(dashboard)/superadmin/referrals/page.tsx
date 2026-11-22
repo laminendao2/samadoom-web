@@ -144,6 +144,8 @@ export default function SuperAdminReferralsPage() {
   const [giftNote, setGiftNote] = useState('');
   const [giftLoading, setGiftLoading] = useState(false);
   const [giftMsg, setGiftMsg] = useState('');
+  // Révocation de don
+  const [revokeLoadingId, setRevokeLoadingId] = useState<string | null>(null);
 
   async function loadData() {
     if (!user) return;
@@ -250,6 +252,27 @@ export default function SuperAdminReferralsPage() {
       setGiftMsg('❌ Erreur réseau');
     } finally {
       setGiftLoading(false);
+    }
+  }
+
+  async function revokeGift(earningId: string, amount: number) {
+    if (!user) return;
+    if (!confirm(`Révoquer ce don de ${amount} FCFA ? Cette action est irréversible.`)) return;
+    setRevokeLoadingId(earningId);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/admin/revoke-gift', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ earningId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(`Erreur : ${data.error}`); return; }
+      await loadData();
+    } catch {
+      alert('Erreur réseau');
+    } finally {
+      setRevokeLoadingId(null);
     }
   }
 
@@ -677,10 +700,26 @@ export default function SuperAdminReferralsPage() {
                         {isGift ? '—' : `-${fmtAmount(saving, e.currency)}`}
                       </td>
                       <td style={{ padding: '12px 14px' }}>
-                        <span style={{
-                          fontWeight: 700, color: isGift ? '#be185d' : '#166534',
-                          background: isGift ? '#fdf2f8' : '#f0fdf4', padding: '3px 10px', borderRadius: 6, fontSize: 12,
-                        }}>+{fmtAmount(e.commission, e.currency)}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{
+                            fontWeight: 700, color: isGift ? '#be185d' : '#166534',
+                            background: isGift ? '#fdf2f8' : '#f0fdf4', padding: '3px 10px', borderRadius: 6, fontSize: 12,
+                          }}>+{fmtAmount(e.commission, e.currency)}</span>
+                          {isGift && (
+                            <button
+                              onClick={() => revokeGift(e.id, e.commission ?? 0)}
+                              disabled={revokeLoadingId === e.id}
+                              title="Révoquer ce don"
+                              style={{
+                                background: 'none', border: '1px solid #fca5a5', borderRadius: 6,
+                                color: '#dc2626', fontSize: 11, padding: '2px 8px', cursor: 'pointer',
+                                opacity: revokeLoadingId === e.id ? 0.5 : 1,
+                              }}
+                            >
+                              {revokeLoadingId === e.id ? '…' : '✕ Révoquer'}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
