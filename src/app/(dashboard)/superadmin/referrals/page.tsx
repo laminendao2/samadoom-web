@@ -146,6 +146,27 @@ export default function SuperAdminReferralsPage() {
   const [giftMsg, setGiftMsg] = useState('');
   // Révocation de don
   const [revokeLoadingId, setRevokeLoadingId] = useState<string | null>(null);
+  // Modal filleuls
+  interface Filleul { uid: string; name: string; email: string; isPro: boolean; subscriptionEnd: string | null; createdAt: string | null; }
+  const [filleulsModal, setFilleulsModal] = useState<string | null>(null); // code affiché
+  const [filleulsList, setFilleulsList] = useState<Filleul[]>([]);
+  const [filleulsLoading, setFilleulsLoading] = useState(false);
+
+  async function loadFilleuls(code: string) {
+    if (!user) return;
+    setFilleulsModal(code);
+    setFilleulsList([]);
+    setFilleulsLoading(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch(`/api/superadmin/referral-filleuls?code=${encodeURIComponent(code)}`, {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json();
+      setFilleulsList(data.filleuls ?? []);
+    } catch { setFilleulsList([]); }
+    finally { setFilleulsLoading(false); }
+  }
 
   async function loadData() {
     if (!user) return;
@@ -569,7 +590,13 @@ export default function SuperAdminReferralsPage() {
                         padding: '3px 10px', borderRadius: 6,
                       }}>{c.code}</span>
                     </td>
-                    <td style={{ padding: '12px 16px', fontWeight: 700, color: '#1d4ed8' }}>{c.usageCount}</td>
+                    <td style={{ padding: '12px 16px', fontWeight: 700, color: '#1d4ed8' }}>
+                      <button
+                        onClick={() => loadFilleuls(c.code)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, color: '#1d4ed8', fontSize: 13, padding: 0, textDecoration: 'underline dotted' }}
+                        title="Voir la liste des filleuls"
+                      >{c.usageCount} 👁</button>
+                    </td>
                     <td style={{ padding: '12px 16px', fontWeight: 700, color: '#166534' }}>{fmt(c.totalEarned)} FCFA</td>
                     <td style={{ padding: '12px 16px' }}>
                       <span style={{
@@ -729,6 +756,57 @@ export default function SuperAdminReferralsPage() {
           )}
         </div>
       )}
+      {/* Modal filleuls */}
+      {filleulsModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+          onClick={() => setFilleulsModal(null)}>
+          <div style={{ background: 'white', borderRadius: 16, padding: 28, minWidth: 400, maxWidth: 560, width: '90%', maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 800, color: '#111827', margin: 0 }}>
+                👥 Filleuls de <span style={{ color: '#7c3aed' }}>{filleulsModal}</span>
+              </h2>
+              <button onClick={() => setFilleulsModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9ca3af' }}>✕</button>
+            </div>
+            {filleulsLoading ? (
+              <p style={{ textAlign: 'center', color: '#9ca3af', padding: 32 }}>Chargement…</p>
+            ) : filleulsList.length === 0 ? (
+              <p style={{ textAlign: 'center', color: '#9ca3af', padding: 32 }}>Aucun filleul trouvé pour ce code.</p>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#374151', fontSize: 12 }}>Nom</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#374151', fontSize: 12 }}>Email</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#374151', fontSize: 12 }}>Statut</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 700, color: '#374151', fontSize: 12 }}>Inscrit le</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filleulsList.map((f, i) => (
+                    <tr key={f.uid} style={{ borderBottom: i < filleulsList.length - 1 ? '1px solid #f3f4f6' : 'none' }}>
+                      <td style={{ padding: '10px 12px', fontWeight: 600, color: '#111827' }}>{f.name}</td>
+                      <td style={{ padding: '10px 12px', color: '#6b7280', fontSize: 12 }}>{f.email}</td>
+                      <td style={{ padding: '10px 12px' }}>
+                        {f.isPro || (f.subscriptionEnd && new Date(f.subscriptionEnd) > new Date())
+                          ? <span style={{ background: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: 6, fontWeight: 700, fontSize: 11 }}>✅ Pro</span>
+                          : <span style={{ background: '#f3f4f6', color: '#6b7280', padding: '2px 8px', borderRadius: 6, fontSize: 11 }}>Gratuit</span>}
+                      </td>
+                      <td style={{ padding: '10px 12px', color: '#9ca3af', fontSize: 12 }}>
+                        {f.createdAt ? new Date(f.createdAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <p style={{ marginTop: 16, fontSize: 12, color: '#9ca3af', textAlign: 'right' }}>
+              {filleulsList.length} filleul{filleulsList.length > 1 ? 's' : ''} enregistré{filleulsList.length > 1 ? 's' : ''}
+            </p>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
