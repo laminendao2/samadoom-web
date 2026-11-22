@@ -3,6 +3,8 @@ import { adminDb } from '@/lib/firebase-admin';
 import { verifyRequestUser } from '@/lib/server-auth';
 import { activatePaydunyaPayment } from '@/lib/subscription';
 
+export const preferredRegion = 'cdg1'; // Paris — évite le blocage Cloudflare PayDunya
+
 /**
  * Appelée par la page de succès : confirme le paiement auprès de PayDunya et
  * active l'abonnement si le webhook ne l'a pas déjà fait.
@@ -21,11 +23,11 @@ export async function POST(req: NextRequest) {
 
     const paymentDoc = await adminDb.collection('payments').doc(token).get();
     if (!paymentDoc.exists) {
-      return NextResponse.json({ error: 'Paiement introuvable' }, { status: 404 });
+      return NextResponse.json({ status: 'error', message: 'Paiement introuvable (token inconnu)' }, { status: 404 });
     }
     // Sécurité : l'utilisateur ne peut vérifier que son propre paiement
     if (paymentDoc.data()!.userId !== authUser.uid) {
-      return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+      return NextResponse.json({ status: 'error', message: 'Accès refusé — ce paiement ne vous appartient pas' }, { status: 403 });
     }
 
     const outcome = await activatePaydunyaPayment(token);
@@ -49,10 +51,10 @@ export async function POST(req: NextRequest) {
       case 'mismatch':
         return NextResponse.json({ status: 'error', message: 'Montant payé incohérent — contactez le support' });
       default:
-        return NextResponse.json({ error: 'Paiement introuvable' }, { status: 404 });
+        return NextResponse.json({ status: 'error', message: 'Statut de paiement inconnu — contactez le support' });
     }
   } catch (err) {
     console.error('verify-and-activate error:', err);
-    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
+    return NextResponse.json({ status: 'error', message: 'Erreur serveur interne' }, { status: 500 });
   }
 }

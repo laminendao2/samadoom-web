@@ -84,11 +84,11 @@ function SuccessContent() {
             setVerifyStatus('pending');
           } else {
             setVerifyStatus('error');
-            setErrorMsg(data.message || 'Erreur de vérification');
+            setErrorMsg(data.message || data.error || `Erreur de vérification (statut: ${data.status ?? 'inconnu'})`);
           }
         } catch {
           setVerifyStatus('error');
-          setErrorMsg('Impossible de vérifier le paiement');
+          setErrorMsg('Impossible de vérifier le paiement (connexion)');
         }
       };
       verify();

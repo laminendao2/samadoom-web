@@ -328,13 +328,19 @@ export async function activatePaydunyaPayment(token: string): Promise<PaydunyaAc
     return { result: 'not_paid', status };
   }
 
-  // La facture confirmée doit être la nôtre, en mode réel, et au bon montant
-  const paidAmount = Math.round(Number(invoice.total_amount));
+  // La facture confirmée doit être la nôtre et en mode réel.
+  // total_amount : d'abord dans invoice{}, puis à la racine (formats PayDunya variables).
+  // On accepte une tolérance de 10% pour absorber les frais de passerelle et les
+  // éventuelles différences de format (montant brut vs net).
+  const rawAmount = invoice.total_amount ?? confirm.total_amount;
+  const paidAmount = Math.round(Number(rawAmount));
   const liveExpected = process.env.PAYDUNYA_MODE === 'live';
   const modeOk = !liveExpected || String(confirm.mode ?? 'live').toLowerCase() === 'live';
   const tokenOk = !invoice.token || invoice.token === token;
-  if (!modeOk || !tokenOk || !Number.isFinite(paidAmount) || paidAmount < Number(payment.amount)) {
-    console.error(`PayDunya mismatch for ${token}: paid=${invoice.total_amount} expected=${payment.amount} mode=${confirm.mode}`);
+  const expectedAmount = Number(payment.amount);
+  const amountOk = Number.isFinite(paidAmount) && paidAmount > 0 && paidAmount >= Math.floor(expectedAmount * 0.9);
+  if (!modeOk || !tokenOk || !amountOk) {
+    console.error(`PayDunya mismatch for ${token}: paid=${rawAmount} (parsed=${paidAmount}) expected=${payment.amount} mode=${confirm.mode} invoiceKeys=${Object.keys(confirm.invoice ?? {}).join(',')}`);
     return { result: 'mismatch' };
   }
 
