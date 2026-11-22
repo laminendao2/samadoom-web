@@ -136,9 +136,6 @@ function LoginForm() {
           Continuer avec Google
         </button>
 
-        <button disabled style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '12px 0', borderRadius: 12, background: '#1f2937', color: 'white', fontWeight: 600, fontSize: 14, border: 'none', cursor: 'not-allowed', opacity: 0.5 }}>
-          🍎 Continuer avec Apple
-        </button>
 
         <p style={{ textAlign: 'center', fontSize: 12, color: '#9ca3af', marginTop: 20 }}>
           En continuant, vous acceptez nos{' '}
