@@ -168,6 +168,12 @@ export default function SuperAdminReferralsPage() {
   const [giftMsg, setGiftMsg] = useState('');
   // Révocation de don
   const [revokeLoadingId, setRevokeLoadingId] = useState<string | null>(null);
+  // Remboursement manuel
+  const [refundCode, setRefundCode] = useState<string | null>(null);
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundNote, setRefundNote] = useState('');
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundMsg, setRefundMsg] = useState('');
   // Modal filleuls
   interface Filleul { uid: string; name: string; email: string; isPro: boolean; subscriptionEnd: string | null; createdAt: string | null; }
   const [filleulsModal, setFilleulsModal] = useState<string | null>(null); // code affiché
@@ -295,6 +301,32 @@ export default function SuperAdminReferralsPage() {
       setGiftMsg('❌ Erreur réseau');
     } finally {
       setGiftLoading(false);
+    }
+  }
+
+  async function sendRefund() {
+    if (!user || !refundCode) return;
+    const amt = parseInt(refundAmount, 10);
+    if (!amt || amt <= 0) { setRefundMsg('❌ Montant invalide'); return; }
+    setRefundLoading(true);
+    setRefundMsg('');
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch('/api/admin/refund-commission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ code: refundCode, amount: amt, note: refundNote || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setRefundMsg(`❌ ${data.error || 'Erreur'}`); return; }
+      setRefundMsg(`✅ ${fmt(amt)} FCFA déduits — nouveau solde : ${fmt(data.newBalance)} FCFA`);
+      setRefundAmount('');
+      setRefundNote('');
+      await loadData();
+    } catch {
+      setRefundMsg('❌ Erreur réseau');
+    } finally {
+      setRefundLoading(false);
     }
   }
 
@@ -615,7 +647,17 @@ export default function SuperAdminReferralsPage() {
                           <p style={{ fontSize: 11, color: '#9ca3af', margin: 0 }}>{c.userEmail}</p>
                         </div>
                         <button
-                          onClick={() => { setGiftCode(giftCode === c.code ? null : c.code); setGiftMsg(''); setGiftAmount(''); setGiftNote(''); }}
+                          onClick={() => { setRefundCode(refundCode === c.code ? null : c.code); setRefundMsg(''); setRefundAmount(''); setRefundNote(''); setGiftCode(null); }}
+                          title="Remboursement manuel"
+                          style={{
+                            background: refundCode === c.code ? '#fee2e2' : '#f9fafb',
+                            border: `1px solid ${refundCode === c.code ? '#f87171' : '#e5e7eb'}`,
+                            borderRadius: 8, padding: '3px 8px', cursor: 'pointer',
+                            fontSize: 12, fontWeight: 600, color: '#991b1b', whiteSpace: 'nowrap',
+                          }}
+                        >💸</button>
+                        <button
+                          onClick={() => { setGiftCode(giftCode === c.code ? null : c.code); setGiftMsg(''); setGiftAmount(''); setGiftNote(''); setRefundCode(null); }}
                           style={{
                             background: giftCode === c.code ? '#fef3c7' : '#f9fafb',
                             border: `1px solid ${giftCode === c.code ? '#f59e0b' : '#e5e7eb'}`,
@@ -703,6 +745,60 @@ export default function SuperAdminReferralsPage() {
                       </td>
                     </tr>
                   )}
+                  {/* Panel remboursement inline */}
+                  {refundCode === c.code && (
+                    <tr style={{ background: '#fef2f2' }}>
+                      <td colSpan={6} style={{ padding: '12px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 600, color: '#991b1b', fontSize: 13 }}>
+                            💸 Remboursement — {c.userName}
+                            <span style={{ marginLeft: 8, fontSize: 12, color: '#b91c1c', fontWeight: 400 }}>
+                              (solde actuel : {fmt(c.balance)} FCFA)
+                            </span>
+                          </span>
+                          <input
+                            type="number"
+                            placeholder="Montant FCFA"
+                            value={refundAmount}
+                            onChange={e => setRefundAmount(e.target.value)}
+                            style={{
+                              border: '1px solid #f87171', borderRadius: 8,
+                              padding: '6px 12px', fontSize: 13, width: 150,
+                              outline: 'none',
+                            }}
+                          />
+                          <input
+                            type="text"
+                            placeholder="Motif (optionnel)"
+                            value={refundNote}
+                            onChange={e => setRefundNote(e.target.value)}
+                            style={{
+                              border: '1px solid #e5e7eb', borderRadius: 8,
+                              padding: '6px 12px', fontSize: 13, width: 200,
+                              outline: 'none',
+                            }}
+                          />
+                          <button
+                            onClick={sendRefund}
+                            disabled={refundLoading || !refundAmount}
+                            style={{
+                              background: refundLoading ? '#d1d5db' : '#dc2626',
+                              color: 'white', border: 'none', borderRadius: 8,
+                              padding: '6px 16px', fontWeight: 700, fontSize: 13,
+                              cursor: refundLoading ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            {refundLoading ? '⏳…' : '💸 Rembourser'}
+                          </button>
+                          <button
+                            onClick={() => { setRefundCode(null); setRefundMsg(''); }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 18 }}
+                          >✕</button>
+                          {refundMsg && <span style={{ fontSize: 13, fontWeight: 600, color: refundMsg.startsWith('✅') ? '#166534' : '#dc2626' }}>{refundMsg}</span>}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                   </React.Fragment>
                 ))}
               </tbody>
@@ -728,17 +824,22 @@ export default function SuperAdminReferralsPage() {
               <tbody>
                 {earnings.map((e, i) => {
                   const isGift = (e as any).type === 'gift';
+                  const isRefund = (e as any).type === 'refund';
                   const cur = (e.currency ?? 'XOF').toUpperCase();
                   const isLegacyCents = cur === 'USD' || cur === 'EUR';
                   const original = e.amountPaid != null ? Math.round(e.amountPaid / 0.95) : 0;
                   const saving = e.amountPaid != null ? original - e.amountPaid : 0;
                   return (
-                    <tr key={e.id} style={{ borderBottom: i < earnings.length - 1 ? '1px solid #f3f4f6' : 'none', background: isGift ? '#fdf2f8' : undefined }}>
+                    <tr key={e.id} style={{ borderBottom: i < earnings.length - 1 ? '1px solid #f3f4f6' : 'none', background: isGift ? '#fdf2f8' : isRefund ? '#fef2f2' : undefined }}>
                       <td style={{ padding: '12px 14px', color: '#6b7280', fontSize: 12 }}>{fmtDate(e.createdAt)}</td>
                       <td style={{ padding: '12px 14px', color: '#374151' }}>
                         {isGift ? (
                           <span style={{ color: '#be185d', fontSize: 11, fontWeight: 600 }}>
                             🤲 Don SuperAdmin{(e as any).note ? ` — ${(e as any).note}` : ''}
+                          </span>
+                        ) : isRefund ? (
+                          <span style={{ color: '#991b1b', fontSize: 11, fontWeight: 600 }}>
+                            💸 Remboursement{(e as any).note ? ` — ${(e as any).note}` : ''}
                           </span>
                         ) : e.referredEmail}
                       </td>
@@ -752,6 +853,8 @@ export default function SuperAdminReferralsPage() {
                       <td style={{ padding: '12px 14px' }}>
                         {isGift ? (
                           <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 5, background: '#fdf2f8', color: '#be185d' }}>Don</span>
+                        ) : isRefund ? (
+                          <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 5, background: '#fef2f2', color: '#991b1b' }}>Remboursement</span>
                         ) : (
                           <span style={{
                             fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 5,
@@ -763,17 +866,24 @@ export default function SuperAdminReferralsPage() {
                         )}
                       </td>
                       <td style={{ padding: '12px 14px', fontWeight: 700, color: '#111827' }}>
-                        {isGift ? '—' : (<>{fmtAmount(e.amountPaid, e.currency)}{isLegacyCents && <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 4 }}>{cur}</span>}</>)}
+                        {(isGift || isRefund) ? '—' : (<>{fmtAmount(e.amountPaid, e.currency)}{isLegacyCents && <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 4 }}>{cur}</span>}</>)}
                       </td>
                       <td style={{ padding: '12px 14px', color: '#dc2626', fontWeight: 600 }}>
-                        {isGift ? '—' : `-${fmtAmount(saving, e.currency)}`}
+                        {(isGift || isRefund) ? '—' : `-${fmtAmount(saving, e.currency)}`}
                       </td>
                       <td style={{ padding: '12px 14px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{
-                            fontWeight: 700, color: isGift ? '#be185d' : '#166534',
-                            background: isGift ? '#fdf2f8' : '#f0fdf4', padding: '3px 10px', borderRadius: 6, fontSize: 12,
-                          }}>+{fmtAmount(e.commission, e.currency)}</span>
+                          {isRefund ? (
+                            <span style={{
+                              fontWeight: 700, color: '#991b1b',
+                              background: '#fef2f2', padding: '3px 10px', borderRadius: 6, fontSize: 12,
+                            }}>{fmtAmount(e.commission, e.currency)}</span>
+                          ) : (
+                            <span style={{
+                              fontWeight: 700, color: isGift ? '#be185d' : '#166534',
+                              background: isGift ? '#fdf2f8' : '#f0fdf4', padding: '3px 10px', borderRadius: 6, fontSize: 12,
+                            }}>+{fmtAmount(e.commission, e.currency)}</span>
+                          )}
                           {isGift && (
                             <button
                               onClick={() => revokeGift(e.id, e.commission ?? 0)}
