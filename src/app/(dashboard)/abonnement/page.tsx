@@ -10,7 +10,7 @@ interface Plan {
   price: number; // prix facturé via Mobile Money (FCFA)
   regularPrice?: number; // prix normal, affiché barré
   launch?: boolean; // prix de lancement
-  stripePriceLabel?: string; // absent = pas de paiement par carte pour ce plan
+  stripeEnabled?: boolean; // true = afficher le bouton Stripe pour ce plan
   currency: string;
   period: string;
   badge?: string;
@@ -19,12 +19,22 @@ interface Plan {
 }
 
 // Les montants FCFA doivent rester alignés avec src/lib/plans.ts (facturation serveur)
+// ⚠️ Passer à false dès que PayDunya est rétabli
+const PAYDUNYA_DOWN = true;
+// Taux fixe CFA (1 EUR = 655.957 XOF)
+const EUR_RATE = 655.957;
+/** Convertit un montant FCFA en centimes EUR (arrondi) puis affiche €X.XX */
+function fcfaToEurLabel(fcfa: number): string {
+  const cents = Math.round(fcfa / EUR_RATE * 100);
+  return `€${(cents / 100).toFixed(2)}`;
+}
 const BASE_PLANS: Plan[] = [
   {
     id: 'semaine',
     name: 'Hebdomadaire',
     price: 500,
     launch: true,
+    stripeEnabled: true, // équivalent FCFA → EUR calculé dynamiquement
     currency: 'FCFA',
     period: '/semaine',
     features: ['Accès à tout le Coran', 'Cours illimités', 'Suivi des progrès', 'Sans engagement'],
@@ -36,7 +46,7 @@ const BASE_PLANS: Plan[] = [
     price: 1500,
     regularPrice: 3000,
     launch: true,
-    stripePriceLabel: '€4.99',
+    stripeEnabled: true,
     currency: 'FCFA',
     period: '/mois',
     features: ['Accès à tout le Coran', 'Cours illimités', 'Suivi des progrès', 'Support prioritaire'],
@@ -48,7 +58,7 @@ const BASE_PLANS: Plan[] = [
     price: 15000,
     regularPrice: 24000,
     launch: true,
-    stripePriceLabel: '€39.99',
+    stripeEnabled: true,
     currency: 'FCFA',
     period: '/an',
     features: ['Tout du plan Mensuel', 'Accès famille (2 enfants)', 'Contenu exclusif'],
@@ -437,6 +447,21 @@ function AbonnementContent() {
         </div>
       )}
 
+      {/* Bannière PayDunya indisponible */}
+      {PAYDUNYA_DOWN && (
+        <div style={{ marginBottom: 20, padding: '14px 18px', background: '#fff7ed', border: '1.5px solid #fb923c', borderRadius: 14, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <span style={{ fontSize: 20, flexShrink: 0 }}>🚧</span>
+          <div>
+            <p style={{ margin: 0, fontWeight: 700, color: '#9a3412', fontSize: 14 }}>
+              Mobile Money (PayDunya) temporairement indisponible
+            </p>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: '#c2410c' }}>
+              Nous travaillons à rétablir le service. En attendant, utilisez le paiement par <strong>carte bancaire internationale</strong> (Visa, Mastercard, Apple Pay…).
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Plans */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 20, marginBottom: 32 }}>
         {BASE_PLANS.map(plan => {
@@ -484,7 +509,7 @@ function AbonnementContent() {
               </div>
               {plan.launch && (
                 <p style={{ fontSize: 12, color: '#b91c1c', fontWeight: 600, margin: '4px 0 0' }}>
-                  Prix de lancement — paiement Mobile Money uniquement
+                  Prix de lancement
                 </p>
               )}
 
@@ -499,27 +524,31 @@ function AbonnementContent() {
 
               {/* Bouton Mobile Money */}
               <button
-                disabled={loading === plan.id}
-                onClick={() => handlePaydunya(plan.id)}
+                disabled={PAYDUNYA_DOWN || loading === plan.id}
+                onClick={() => !PAYDUNYA_DOWN && handlePaydunya(plan.id)}
+                title={PAYDUNYA_DOWN ? 'Service temporairement indisponible' : undefined}
                 style={{
                   width: '100%',
                   padding: '12px 0',
                   borderRadius: 12,
-                  background: '#166534',
+                  background: PAYDUNYA_DOWN ? '#9ca3af' : '#166534',
                   color: 'white',
                   fontWeight: 700,
                   fontSize: 14,
                   border: 'none',
-                  cursor: loading === plan.id ? 'not-allowed' : 'pointer',
+                  cursor: PAYDUNYA_DOWN || loading === plan.id ? 'not-allowed' : 'pointer',
                   opacity: loading === plan.id ? 0.7 : 1,
                   marginBottom: 8,
+                  position: 'relative' as const,
                 }}>
-                {loading === plan.id ? 'Redirection…' : '🌍 Mobile Money (Orange, Wave…)'}
+                {loading === plan.id ? 'Redirection…'
+                  : PAYDUNYA_DOWN ? '🚧 Mobile Money — indisponible temporairement'
+                  : '🌍 Mobile Money (Orange, Wave…)'}
               </button>
 
-              {/* Bouton Stripe (prix en EUR — taux fixe CFA, hors prix de lancement) */}
-              {plan.stripePriceLabel && (
-              <button
+              {/* Bouton Stripe — prix = équivalent FCFA converti en EUR, réduction parrainage incluse */}
+              {plan.stripeEnabled && (
+                <button
                   disabled={loading === `stripe-${plan.id}`}
                   onClick={() => handleStripe(plan.id)}
                   style={{
@@ -534,7 +563,9 @@ function AbonnementContent() {
                     cursor: loading === `stripe-${plan.id}` ? 'not-allowed' : 'pointer',
                     opacity: loading === `stripe-${plan.id}` ? 0.7 : 1,
                   }}>
-                  {loading === `stripe-${plan.id}` ? 'Redirection…' : `💳 Carte bancaire internationale (${plan.stripePriceLabel})`}
+                  {loading === `stripe-${plan.id}`
+                    ? 'Redirection…'
+                    : `💳 Carte bancaire internationale (${fcfaToEurLabel(getDiscountedPrice(plan.price))})`}
                 </button>
               )}
             </div>
@@ -599,7 +630,7 @@ function AbonnementContent() {
           ))}
         </div>
         <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 12 }}>
-          Mensuel : $5/mois · Annuel : $39/an — paiement 100% sécurisé via Stripe.
+          Hebdomadaire : €0.76 · Mensuel : €2.29 · Annuel : €22.87 — équivalent FCFA au taux fixe CFA. Réduction parrainage applicable. Paiement 100% sécurisé via Stripe.
         </p>
       </div>
 

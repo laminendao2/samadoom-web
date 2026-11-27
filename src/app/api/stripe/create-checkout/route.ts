@@ -24,9 +24,11 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 });
 
 // Prix en centimes EUR — 1 EUR = 655.957 XOF (taux fixe CFA)
+// Équivalent exact des tarifs FCFA : montant FCFA / 655.957, arrondi
 const STRIPE_PRICES: Record<string, number> = {
-  mensuel: 499,   // €4.99/mois ≈ 3 270 FCFA
-  annuel: 3999,   // €39.99/an  ≈ 26 220 FCFA
+  semaine: 76,    // 500 FCFA   → €0.76
+  mensuel: 229,   // 1 500 FCFA → €2.29
+  annuel:  2287,  // 15 000 FCFA → €22.87
 };
 
 const REFERRAL_DISCOUNT = 0.05; // 5%
@@ -90,7 +92,7 @@ export async function POST(req: NextRequest) {
             currency: 'eur',
             unit_amount: finalAmount,
             product_data: {
-              name: `Sama Doom — Plan ${plan === 'mensuel' ? 'Mensuel' : 'Annuel'}`,
+              name: `Sama Doom — Plan ${plan === 'mensuel' ? 'Mensuel' : plan === 'semaine' ? 'Hebdomadaire' : 'Annuel'}`,
               description: discountApplied
                 ? `Accès Pro Sama Doom (-5% parrainage code ${referralCode})`
                 : 'Accès complet à tout le contenu islamique',
